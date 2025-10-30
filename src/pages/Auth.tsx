@@ -52,7 +52,7 @@ const Auth = () => {
           email,
           password,
           options: {
-            emailRedirectTo: `${window.location.origin}/`,
+            emailRedirectTo: (import.meta.env.VITE_SITE_URL as string) || `${window.location.origin}/`,
             data: {
               name,
               user_type: userType,

@@ -8,7 +8,9 @@ import Auth from "./pages/Auth";
 import CustomerDashboard from "./pages/dashboard/Customer";
 import StoreDashboard from "./pages/dashboard/Store";
 import RiderDashboard from "./pages/dashboard/Rider";
+import NewProduct from "./pages/store/NewProduct";
 import NotFound from "./pages/NotFound";
+import { CartProvider } from "./context/CartContext";
 
 const queryClient = new QueryClient();
 
@@ -17,17 +19,20 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
+      <CartProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Index />} />
+          <Route path="/" element={<CustomerDashboard />} />
           <Route path="/auth" element={<Auth />} />
           <Route path="/dashboard/customer" element={<CustomerDashboard />} />
           <Route path="/dashboard/store" element={<StoreDashboard />} />
           <Route path="/dashboard/rider" element={<RiderDashboard />} />
+          <Route path="/store/products/new" element={<NewProduct />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
+      </CartProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );

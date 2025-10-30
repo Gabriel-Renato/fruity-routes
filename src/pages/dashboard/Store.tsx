@@ -8,6 +8,7 @@ import { Store, Package, TrendingUp, DollarSign } from "lucide-react";
 const StoreDashboard = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
+  const [products, setProducts] = useState<Array<{ id: string; name: string; price_milli: number }>>([]);
 
   useEffect(() => {
     const checkUser = async () => {
@@ -16,6 +17,12 @@ const StoreDashboard = () => {
         navigate("/auth");
       } else {
         setUser(user);
+        const { data } = await supabase
+          .from("products")
+          .select("id,name,price_milli")
+          .eq("store_id", user.id)
+          .order("created_at", { ascending: false });
+        setProducts(data || []);
       }
     };
 
@@ -55,7 +62,7 @@ const StoreDashboard = () => {
 
         <div className="grid md:grid-cols-4 gap-4 mb-8">
           {[
-            { icon: Package, label: "Produtos", value: "0", color: "secondary" },
+            { icon: Package, label: "Produtos", value: String(products.length), color: "secondary" },
             { icon: Store, label: "Pedidos Hoje", value: "0", color: "primary" },
             { icon: TrendingUp, label: "Vendas Mês", value: "R$ 0", color: "accent" },
             { icon: DollarSign, label: "Faturamento", value: "R$ 0", color: "secondary" },
@@ -98,13 +105,27 @@ const StoreDashboard = () => {
               <CardTitle>Produtos Cadastrados</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-center py-12 text-muted-foreground">
-                <Package className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p className="text-lg mb-2">Nenhum produto cadastrado</p>
-                <Button className="mt-4 bg-gradient-to-r from-secondary to-accent">
-                  Adicionar Produto
-                </Button>
-              </div>
+              {products.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Package className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p className="text-lg mb-2">Nenhum produto cadastrado</p>
+                  <Button className="mt-4 bg-gradient-to-r from-secondary to-accent" onClick={() => navigate("/store/products/new")}>
+                    Adicionar Produto
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {products.map((p) => (
+                    <div key={p.id} className="flex items-center justify-between border rounded-md p-3">
+                      <span className="font-medium">{p.name}</span>
+                      <span className="text-sm text-muted-foreground">R$ {(p.price_milli / 1000).toFixed(2)}</span>
+                    </div>
+                  ))}
+                  <div className="pt-2">
+                    <Button className="bg-gradient-to-r from-secondary to-accent" onClick={() => navigate("/store/products/new")}>Adicionar Produto</Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

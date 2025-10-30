@@ -43,6 +43,78 @@ export type Database = {
           user_type?: Database["public"]["Enums"]["user_type"]
         }
         Relationships: []
+      },
+      products: {
+        Row: {
+          id: string
+          store_id: string
+          name: string
+          price_milli: number
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          store_id: string
+          name: string
+          price_milli: number
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          store_id?: string
+          name?: string
+          price_milli?: number
+          created_at?: string | null
+        }
+        Relationships: []
+      },
+      stores: {
+        Row: { id: string; owner_id: string; name: string; active: boolean; delivery_radius_km: string | null; created_at: string | null }
+        Insert: { id?: string; owner_id: string; name: string; active?: boolean; delivery_radius_km?: string | null; created_at?: string | null }
+        Update: { id?: string; owner_id?: string; name?: string; active?: boolean; delivery_radius_km?: string | null; created_at?: string | null }
+        Relationships: []
+      },
+      categories: {
+        Row: { id: string; name: string }
+        Insert: { id?: string; name: string }
+        Update: { id?: string; name?: string }
+        Relationships: []
+      },
+      product_categories: {
+        Row: { product_id: string; category_id: string }
+        Insert: { product_id: string; category_id: string }
+        Update: { product_id?: string; category_id?: string }
+        Relationships: []
+      },
+      addresses: {
+        Row: { id: string; user_id: string; label: string | null; street: string | null; city: string | null; state: string | null; zip: string | null; lat: number | null; lng: number | null; created_at: string | null }
+        Insert: { id?: string; user_id: string; label?: string | null; street?: string | null; city?: string | null; state?: string | null; zip?: string | null; lat?: number | null; lng?: number | null; created_at?: string | null }
+        Update: { id?: string; user_id?: string; label?: string | null; street?: string | null; city?: string | null; state?: string | null; zip?: string | null; lat?: number | null; lng?: number | null; created_at?: string | null }
+        Relationships: []
+      },
+      carts: {
+        Row: { id: string; user_id: string; store_id: string | null; created_at: string | null }
+        Insert: { id?: string; user_id: string; store_id?: string | null; created_at?: string | null }
+        Update: { id?: string; user_id?: string; store_id?: string | null; created_at?: string | null }
+        Relationships: []
+      },
+      cart_items: {
+        Row: { id: string; cart_id: string; product_id: string; qty: number; unit_price_milli: number; created_at: string | null }
+        Insert: { id?: string; cart_id: string; product_id: string; qty: number; unit_price_milli: number; created_at?: string | null }
+        Update: { id?: string; cart_id?: string; product_id?: string; qty?: number; unit_price_milli?: number; created_at?: string | null }
+        Relationships: []
+      },
+      orders: {
+        Row: { id: string; customer_id: string; store_id: string; status: string; total_milli: number; created_at: string | null }
+        Insert: { id?: string; customer_id: string; store_id: string; status?: string; total_milli?: number; created_at?: string | null }
+        Update: { id?: string; customer_id?: string; store_id?: string; status?: string; total_milli?: number; created_at?: string | null }
+        Relationships: []
+      },
+      order_items: {
+        Row: { id: string; order_id: string; product_id: string; qty: number; unit_price_milli: number; subtotal_milli: number; created_at: string | null }
+        Insert: { id?: string; order_id: string; product_id: string; qty: number; unit_price_milli: number; subtotal_milli: number; created_at?: string | null }
+        Update: { id?: string; order_id?: string; product_id?: string; qty?: number; unit_price_milli?: number; subtotal_milli?: number; created_at?: string | null }
+        Relationships: []
       }
     }
     Views: {
