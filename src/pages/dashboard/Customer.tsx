@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
  
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ShoppingBag, MapPin, Clock, User } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { ShoppingBag, MapPin, Clock, User, Store, Star, TrendingDown, Sparkles, ShoppingCart } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -11,7 +12,12 @@ const CustomerDashboard = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
   const [userType, setUserType] = useState<string | null>(null);
+  const [profile, setProfile] = useState<any>(null);
   const [products, setProducts] = useState<Array<{ id: string; name: string; price_milli: number; store_id: string }>>([]);
+  const [nearbyStores, setNearbyStores] = useState<Array<{ id: string; name: string; city: string | null; state: string | null; owner_id: string }>>([]);
+  const [recentOrders, setRecentOrders] = useState<Array<{ id: string; created_at: string; total_milli: number; status: string; store_id: string }>>([]);
+  const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
+  const [activeOrdersCount, setActiveOrdersCount] = useState(0);
   const { addItem, items, totalMilli, clear } = useCart();
 
   useEffect(() => {
@@ -20,6 +26,7 @@ const CustomerDashboard = () => {
       if (!user) {
         setUser(null);
         setUserType(null);
+        setProfile(null);
         return;
       }
       setUser(user);
@@ -33,6 +40,14 @@ const CustomerDashboard = () => {
           rider: "/dashboard/rider",
         };
         navigate(dashboardRoutes[effectiveType] || "/auth");
+      } else {
+        // Carregar perfil do usuário
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("city, state")
+          .eq("id", user.id)
+          .single();
+        setProfile(profileData);
       }
     };
 
@@ -47,6 +62,58 @@ const CustomerDashboard = () => {
     loadProducts();
   }, []);
 
+  useEffect(() => {
+    const loadCategories = async () => {
+      const { data } = await supabase.from("categories").select("id,name").order("name");
+      setCategories(data || []);
+    };
+    loadCategories();
+  }, []);
+
+  useEffect(() => {
+    const loadNearbyStores = async () => {
+      if (!profile?.city) return;
+      
+      const { data } = await supabase
+        .from("stores")
+        .select("id, name, city, state, owner_id")
+        .eq("city", profile.city)
+        .eq("active", true);
+      
+      setNearbyStores(data || []);
+    };
+    
+    loadNearbyStores();
+  }, [profile]);
+
+  useEffect(() => {
+    const loadRecentOrders = async () => {
+      if (!user) return;
+      
+      const { data: orders } = await supabase
+        .from("orders")
+        .select("id, created_at, total_milli, status, store_id")
+        .eq("customer_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(5);
+      
+      setRecentOrders(orders || []);
+      
+      // Contar pedidos ativos
+      const { count } = await supabase
+        .from("orders")
+        .select("*", { count: "exact", head: true })
+        .eq("customer_id", user.id)
+        .in("status", ["pending", "preparing", "ready", "on_way"]);
+      
+      setActiveOrdersCount(count || 0);
+    };
+    
+    if (user) {
+      loadRecentOrders();
+    }
+  }, [user]);
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate("/");
@@ -56,87 +123,304 @@ const CustomerDashboard = () => {
     navigate("/auth");
   };
 
+  // Produtos com desconto (promoções)
+  const promotionalProducts = products.slice(0, 3).map(p => ({
+    ...p,
+    discountPrice: Math.floor(p.price_milli * 0.7), // 30% OFF
+  }));
+
+  // Produtos recomendados (os mais recentes)
+  const recommendedProducts = products.slice(0, 6);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-background to-muted">
-      <nav className="border-b bg-card/50 backdrop-blur-sm">
+      <nav className="sticky top-0 z-50 border-b bg-white/80 backdrop-blur-md shadow-sm">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-            StarFruitC
+          <div className="flex items-center gap-2">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center">
+              <span className="text-white font-bold text-lg">🍊</span>
+            </div>
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-orange-500 to-orange-700 bg-clip-text text-transparent">
+            StarFruit
           </h1>
+          </div>
           <div className="flex items-center gap-4">
             {user ? (
               <>
-                <span className="text-sm text-muted-foreground">{user?.email}</span>
-                <Button variant="outline" onClick={handleLogout}>Sair</Button>
+                <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100">
+                  <User className="h-4 w-4 text-gray-600" />
+                  <span className="text-sm text-gray-700 font-medium">{user?.email}</span>
+                </div>
+                <Button variant="outline" onClick={handleLogout} className="rounded-full">Sair</Button>
               </>
             ) : (
-              <Button onClick={goToLogin}>Entrar</Button>
+              <Button onClick={goToLogin} className="rounded-full bg-orange-500 hover:bg-orange-600">Entrar</Button>
             )}
           </div>
         </div>
       </nav>
 
-      <main className="container mx-auto px-4 py-8">
-        <div className="mb-8">
-          <h2 className="text-3xl font-bold mb-2">Olá, Cliente! 🍊</h2>
-          <p className="text-muted-foreground">
-            {user ? "Bem-vindo ao seu painel de pedidos" : "Explore ofertas e lojas. Entre para fazer pedidos."}
+      <main className="container mx-auto px-4 py-6 max-w-7xl">
+        {/* Header com saudação */}
+        <div className="mb-6">
+          <h2 className="text-3xl font-bold mb-1 text-gray-900">
+            {user ? `Olá, ${user?.email?.split('@')[0] || 'Cliente'}! 👋` : "Explore o melhor em frutas frescas 🍊"}
+          </h2>
+          <p className="text-gray-600">
+            {user ? "Encontre os melhores produtos perto de você" : "Entre para fazer seus pedidos"}
           </p>
         </div>
 
-        <div className="grid md:grid-cols-4 gap-4 mb-8">
+        {/* Cards de estatísticas melhorados */}
+        <div className="grid md:grid-cols-4 gap-4 mb-6">
           {[
-            { icon: ShoppingBag, label: "Pedidos Ativos", value: "0", color: "primary" },
-            { icon: Clock, label: "Histórico", value: "0", color: "secondary" },
-            { icon: MapPin, label: "Endereços", value: "0", color: "accent" },
-            { icon: User, label: "Perfil", value: "Completo", color: "primary" },
+            { icon: ShoppingBag, label: "Pedidos Ativos", value: activeOrdersCount.toString(), color: "bg-blue-500", textColor: "text-blue-600" },
+            { icon: Clock, label: "Histórico", value: recentOrders.length.toString(), color: "bg-purple-500", textColor: "text-purple-600" },
+            { icon: MapPin, label: "Endereços", value: "1", color: "bg-green-500", textColor: "text-green-600" },
+            { icon: User, label: "Perfil", value: profile?.city ? "✓" : "!", color: "bg-orange-500", textColor: "text-orange-600" },
           ].map((stat) => {
             const Icon = stat.icon;
             return (
-              <Card key={stat.label} className="hover:shadow-[var(--shadow-primary)] transition-shadow">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium">
-                    {stat.label}
-                  </CardTitle>
-                  <Icon className={`h-4 w-4 text-${stat.color}`} />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{stat.value}</div>
+              <Card key={stat.label} className="hover:shadow-lg transition-all duration-300 border-0 shadow-md">
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className={`w-12 h-12 ${stat.color} rounded-xl flex items-center justify-center`}>
+                      <Icon className="h-6 w-6 text-white" />
+                    </div>
+                    <Badge variant="secondary" className="text-xs">{stat.label}</Badge>
+                  </div>
+                  <div className={`text-3xl font-bold ${stat.textColor} mb-1`}>{stat.value}</div>
+                  <p className="text-xs text-gray-500">{stat.label}</p>
                 </CardContent>
               </Card>
             );
           })}
         </div>
 
-        <Card className="shadow-[var(--shadow-primary)]">
-          <CardHeader>
-            <CardTitle>Lojas Próximas</CardTitle>
-          </CardHeader>
-          <CardContent>
+        {/* Seção de Lojas Próximas - Estilo iFood */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-1">Lojas Próximas</h3>
+              <p className="text-sm text-gray-500">Encontre o melhor perto de você</p>
+            </div>
+            {nearbyStores.length > 0 && (
+              <Badge variant="secondary" className="text-xs">{(nearbyStores.length)} loja{nearbyStores.length > 1 ? 's' : ''}</Badge>
+            )}
+          </div>
+          
+          <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6">
+            {!user ? (
             <div className="text-center py-12 text-muted-foreground">
               <ShoppingBag className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p className="text-lg mb-2">Nenhuma loja disponível ainda</p>
+                <p className="text-lg mb-2">Faça login para ver lojas próximas</p>
+                <Button onClick={goToLogin} className="mt-4">Entrar</Button>
+              </div>
+            ) : !profile?.city ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <MapPin className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p className="text-lg mb-2">Complete seu perfil com sua cidade</p>
+                <p className="text-sm">Atualize seu perfil para ver lojas próximas da sua cidade.</p>
+              </div>
+            ) : nearbyStores.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <Store className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p className="text-lg mb-2">Nenhuma loja encontrada na sua cidade</p>
               <p className="text-sm">
-                Em breve você poderá fazer pedidos das lojas mais próximas!
-              </p>
+                  {profile?.city ? `Não há lojas cadastradas em ${profile.city} ainda.` : "Complete seu perfil com sua cidade."}
+                </p>
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-3 gap-4">
+                {nearbyStores.map(store => (
+                  <Card key={store.id} className="hover:shadow-xl transition-all duration-300 border border-gray-200 overflow-hidden group cursor-pointer">
+                    <div className="relative h-32 bg-gradient-to-br from-orange-100 to-orange-200 flex items-center justify-center">
+                      <Store className="h-16 w-16 text-orange-500 opacity-50" />
+                      <div className="absolute top-2 right-2">
+                        <Badge className="bg-orange-500 text-white">Aberto</Badge>
+                      </div>
+                    </div>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <CardTitle className="text-lg font-bold text-gray-900 mb-1">{store.name}</CardTitle>
+                          <div className="flex items-center gap-1 text-sm text-gray-600">
+                            <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                            <span className="font-medium">4.8</span>
+                            <span className="text-gray-400">•</span>
+                            <span>50+ avaliações</span>
+                          </div>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
+                        <MapPin className="h-4 w-4 text-orange-500" />
+                        <span>{store.city}{store.state ? `, ${store.state}` : ""}</span>
+                      </div>
+                      <Button 
+                        size="sm" 
+                        className="w-full bg-orange-500 hover:bg-orange-600 rounded-full"
+                        onClick={() => {
+                          const storeProducts = products.filter(p => p.store_id === store.owner_id);
+                          if (storeProducts.length > 0) {
+                            window.scrollTo({ top: document.querySelector('[data-products-section]')?.getBoundingClientRect().top || 0, behavior: 'smooth' });
+                          }
+                        }}
+                      >
+                        Ver Produtos
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Seção de Categorias - Estilo iFood */}
+        <div className="mb-8">
+          <h3 className="text-2xl font-bold text-gray-900 mb-4">Categorias</h3>
+          <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+            {categories.length > 0 ? (
+              categories.map(cat => (
+                <Button 
+                  key={cat.id} 
+                  variant="outline" 
+                  className="rounded-full px-6 py-2 whitespace-nowrap hover:bg-orange-500 hover:text-white hover:border-orange-500 transition-all"
+                  onClick={() => {
+                    window.scrollTo({ top: document.querySelector('[data-products-section]')?.getBoundingClientRect().top || 0, behavior: 'smooth' });
+                  }}
+                >
+                  {cat.name}
+                </Button>
+              ))
+            ) : (
+              <>
+                <Button variant="outline" className="rounded-full px-6 py-2 whitespace-nowrap hover:bg-orange-500 hover:text-white hover:border-orange-500 transition-all">Frutas 🍊</Button>
+                <Button variant="outline" className="rounded-full px-6 py-2 whitespace-nowrap hover:bg-orange-500 hover:text-white hover:border-orange-500 transition-all">Verduras 🥬</Button>
+                <Button variant="outline" className="rounded-full px-6 py-2 whitespace-nowrap hover:bg-orange-500 hover:text-white hover:border-orange-500 transition-all">Orgânicos 🌱</Button>
+                <Button variant="outline" className="rounded-full px-6 py-2 whitespace-nowrap hover:bg-orange-500 hover:text-white hover:border-orange-500 transition-all">Promoções 🔥</Button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Seção de Promoções - Estilo iFood */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-1 flex items-center gap-2">
+                <TrendingDown className="h-6 w-6 text-red-500" />
+                Promoções
+              </h3>
+              <p className="text-sm text-gray-500">Ofertas da semana com até 30% OFF</p>
+            </div>
+            <Badge className="bg-red-500 text-white">-30%</Badge>
+          </div>
+          <div className="bg-gradient-to-r from-red-50 to-orange-50 rounded-2xl p-6 border border-red-100">
+            {promotionalProducts.length > 0 ? (
+              <div className="grid md:grid-cols-3 gap-4">
+                {promotionalProducts.map(p => (
+                  <Card key={p.id} className="bg-white hover:shadow-lg transition-all border border-red-100">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-gray-900">{p.name}</h4>
+                          <Badge className="mt-2 bg-red-500 text-white">30% OFF</Badge>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 mt-3">
+                        <span className="text-xs text-gray-400 line-through">
+                          R$ {(p.price_milli/1000).toFixed(2)}
+                        </span>
+                        <span className="text-xl font-bold text-red-600">
+                          R$ {(p.discountPrice/1000).toFixed(2)}
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <p className="text-center text-gray-500 py-8">Nenhuma promoção disponível no momento.</p>
+            )}
+          </div>
+        </div>
+
+        {/* Seção de Recomendados */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-1 flex items-center gap-2">
+                <Sparkles className="h-6 w-6 text-yellow-500" />
+                Recomendados
+              </h3>
+              <p className="text-sm text-gray-500">Seleções fresquinhas para você 🍇🍉</p>
+            </div>
+          </div>
+          {recommendedProducts.length > 0 ? (
+            <div className="grid md:grid-cols-3 gap-4">
+              {recommendedProducts.slice(0, 3).map(p => (
+                <Card key={p.id} className="bg-white hover:shadow-lg transition-all border border-gray-200">
+                  <CardContent className="p-4">
+                    <div className="h-32 bg-gradient-to-br from-orange-100 to-orange-200 rounded-lg mb-3 flex items-center justify-center">
+                      <span className="text-4xl">🍊</span>
+                    </div>
+                    <h4 className="font-semibold text-gray-900 mb-2">{p.name}</h4>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xl font-bold text-orange-600">R$ {(p.price_milli/1000).toFixed(2)}</span>
+                      <Button size="sm" className="rounded-full bg-orange-500 hover:bg-orange-600" onClick={() => addItem({ productId: p.id, name: p.name, priceMilli: p.price_milli, storeId: p.store_id })}>
+                        Adicionar
+                      </Button>
             </div>
           </CardContent>
         </Card>
-
-        <div className="mt-8">
-          <h3 className="text-xl font-semibold mb-4">Produtos</h3>
-          {products.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nenhum produto disponível.</p>
+              ))}
+            </div>
           ) : (
-            <div className="grid md:grid-cols-3 gap-4">
+            <p className="text-center text-gray-500 py-8">Nenhum produto recomendado no momento.</p>
+          )}
+        </div>
+
+        {/* Seção de Produtos - Estilo iFood */}
+        <div className="mt-8" data-products-section>
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-2xl font-bold text-gray-900">Todos os Produtos</h3>
+            <Badge variant="secondary">{products.length} produtos</Badge>
+          </div>
+          {products.length === 0 ? (
+            <div className="text-center py-16 bg-white rounded-2xl border border-gray-200">
+              <ShoppingBag className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+              <p className="text-gray-500 font-medium">Nenhum produto disponível no momento</p>
+            </div>
+          ) : (
+            <div className="grid md:grid-cols-4 gap-4">
               {products.map(p => (
-                <Card key={p.id} className="hover:shadow-[var(--shadow-primary)] transition-shadow">
-                  <CardHeader>
-                    <CardTitle className="text-base">{p.name}</CardTitle>
-                  </CardHeader>
-                  <CardContent className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">R$ {(p.price_milli/1000).toFixed(2)}</span>
-                    <Button size="sm" onClick={() => addItem({ productId: p.id, name: p.name, priceMilli: p.price_milli, storeId: p.store_id })}>Adicionar</Button>
+                <Card key={p.id} className="bg-white hover:shadow-xl transition-all duration-300 border border-gray-200 overflow-hidden group cursor-pointer">
+                  <div className="relative h-40 bg-gradient-to-br from-orange-100 to-orange-200 flex items-center justify-center">
+                    <span className="text-6xl opacity-80">🍊</span>
+                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button size="sm" className="rounded-full bg-white shadow-md hover:bg-orange-500 hover:text-white" onClick={(e) => {
+                        e.stopPropagation();
+                        addItem({ productId: p.id, name: p.name, priceMilli: p.price_milli, storeId: p.store_id });
+                      }}>
+                        <ShoppingCart className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  <CardContent className="p-4">
+                    <h4 className="font-bold text-gray-900 mb-2">{p.name}</h4>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xl font-bold text-orange-600">R$ {(p.price_milli/1000).toFixed(2)}</span>
+                      <Button 
+                        size="sm" 
+                        className="rounded-full bg-orange-500 hover:bg-orange-600 text-white"
+                        onClick={() => addItem({ productId: p.id, name: p.name, priceMilli: p.price_milli, storeId: p.store_id })}
+                      >
+                        Adicionar
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               ))}
@@ -144,25 +428,20 @@ const CustomerDashboard = () => {
           )}
         </div>
 
-        <div className="mt-8">
-          <h3 className="text-xl font-semibold mb-2">Carrinho</h3>
-          {items.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Seu carrinho está vazio.</p>
-          ) : (
-            <div className="space-y-3">
-              {items.map(i => (
-                <div key={i.productId} className="flex items-center justify-between border rounded-md p-3">
-                  <span>{i.name} x{i.qty}</span>
-                  <span className="text-sm text-muted-foreground">R$ {((i.priceMilli*i.qty)/1000).toFixed(2)}</span>
+        {/* Carrinho Flutuante - Estilo iFood */}
+        {items.length > 0 && (
+          <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-2xl z-50 p-4 md:hidden">
+            <div className="container mx-auto flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <ShoppingCart className="h-5 w-5 text-orange-500" />
+                  <span className="font-semibold text-gray-900">{items.length} item{items.length > 1 ? 's' : ''}</span>
                 </div>
-              ))}
-              <div className="flex items-center justify-between pt-2">
-                <span className="font-semibold">Total</span>
-                <span className="font-semibold">R$ {(totalMilli/1000).toFixed(2)}</span>
+                <span className="text-lg font-bold text-orange-600">R$ {(totalMilli/1000).toFixed(2)}</span>
               </div>
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={clear}>Limpar</Button>
-                <Button onClick={async () => {
+              <Button 
+                className="rounded-full bg-orange-500 hover:bg-orange-600 px-6"
+                onClick={async () => {
                   const { data: { user: u } } = await supabase.auth.getUser();
                   if (!u) { navigate('/auth'); return; }
                   if (items.length === 0) return;
@@ -172,65 +451,165 @@ const CustomerDashboard = () => {
                   const payload = items.map(i => ({ order_id: order.id, product_id: i.productId, qty: i.qty, unit_price_milli: i.priceMilli, subtotal_milli: i.priceMilli*i.qty }));
                   await supabase.from('order_items').insert(payload);
                   clear();
-                }}>Finalizar Pedido</Button>
+                  const { data: orders } = await supabase
+                    .from("orders")
+                    .select("id, created_at, total_milli, status, store_id")
+                    .eq("customer_id", u.id)
+                    .order("created_at", { ascending: false })
+                    .limit(5);
+                  setRecentOrders(orders || []);
+                }}
+              >
+                Finalizar
+              </Button>
+            </div>
+            </div>
+          )}
+
+        {/* Carrinho Desktop */}
+        <div className="mt-8 hidden md:block">
+          <Card className="bg-white shadow-lg border border-gray-200">
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                  <ShoppingCart className="h-5 w-5 text-orange-500" />
+                  Carrinho
+                </CardTitle>
+                {items.length > 0 && (
+                  <Badge className="bg-orange-500 text-white">{items.length}</Badge>
+                )}
               </div>
+            </CardHeader>
+            <CardContent>
+              {items.length === 0 ? (
+                <div className="text-center py-12">
+                  <ShoppingCart className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                  <p className="text-gray-500 font-medium">Seu carrinho está vazio</p>
+                  <p className="text-sm text-gray-400 mt-1">Adicione produtos para começar</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {items.map(i => (
+                    <div key={i.productId} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
+                      <div className="flex-1">
+                        <span className="font-medium text-gray-900">{i.name}</span>
+                        <p className="text-sm text-gray-500">Quantidade: {i.qty}x</p>
+                      </div>
+                      <span className="font-bold text-orange-600 ml-4">R$ {((i.priceMilli*i.qty)/1000).toFixed(2)}</span>
+                    </div>
+                  ))}
+                  <div className="border-t pt-4 mt-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <span className="text-lg font-semibold text-gray-700">Total</span>
+                      <span className="text-2xl font-bold text-orange-600">R$ {(totalMilli/1000).toFixed(2)}</span>
+                    </div>
+                    <div className="flex gap-3">
+                      <Button variant="outline" onClick={clear} className="flex-1 rounded-full">Limpar Carrinho</Button>
+                      <Button 
+                        className="flex-1 rounded-full bg-orange-500 hover:bg-orange-600"
+                        onClick={async () => {
+                          const { data: { user: u } } = await supabase.auth.getUser();
+                          if (!u) { navigate('/auth'); return; }
+                          if (items.length === 0) return;
+                          const storeId = items[0].storeId;
+                          const { data: order, error } = await supabase.from('orders').insert({ customer_id: u.id, store_id: storeId, total_milli: totalMilli }).select('*').single();
+                          if (!order || error) return;
+                          const payload = items.map(i => ({ order_id: order.id, product_id: i.productId, qty: i.qty, unit_price_milli: i.priceMilli, subtotal_milli: i.priceMilli*i.qty }));
+                          await supabase.from('order_items').insert(payload);
+                          clear();
+                          const { data: orders } = await supabase
+                            .from("orders")
+                            .select("id, created_at, total_milli, status, store_id")
+                            .eq("customer_id", u.id)
+                            .order("created_at", { ascending: false })
+                            .limit(5);
+                          setRecentOrders(orders || []);
+                        }}
+                      >
+                        Finalizar Pedido
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Pedidos Recentes - Estilo iFood */}
+        <div className="mt-12">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-1">Pedidos Recentes</h3>
+              <p className="text-sm text-gray-500">Acompanhe seus últimos pedidos</p>
+            </div>
+          </div>
+          {!user ? (
+            <Card className="bg-white border border-gray-200">
+              <CardContent className="p-8 text-center">
+                <Clock className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                <p className="text-gray-600 font-medium">Entre para ver seu histórico de pedidos</p>
+                <Button onClick={goToLogin} className="mt-4 rounded-full bg-orange-500 hover:bg-orange-600">Entrar</Button>
+              </CardContent>
+            </Card>
+          ) : recentOrders.length === 0 ? (
+            <Card className="bg-white border border-gray-200">
+              <CardContent className="p-8 text-center">
+                <ShoppingBag className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                <p className="text-gray-600 font-medium">Você ainda não fez nenhum pedido</p>
+                <p className="text-sm text-gray-400 mt-1">Explore nossos produtos e faça seu primeiro pedido!</p>
+            </CardContent>
+          </Card>
+          ) : (
+            <div className="grid md:grid-cols-2 gap-4">
+              {recentOrders.map(order => {
+                const statusColors: Record<string, string> = {
+                  pending: "bg-yellow-100 text-yellow-800",
+                  preparing: "bg-blue-100 text-blue-800",
+                  ready: "bg-green-100 text-green-800",
+                  on_way: "bg-purple-100 text-purple-800",
+                  delivered: "bg-gray-100 text-gray-800",
+                  cancelled: "bg-red-100 text-red-800"
+                };
+                const statusLabels: Record<string, string> = {
+                  pending: "Pendente",
+                  preparing: "Preparando",
+                  ready: "Pronto",
+                  on_way: "A caminho",
+                  delivered: "Entregue",
+                  cancelled: "Cancelado"
+                };
+                return (
+                  <Card key={order.id} className="bg-white hover:shadow-lg transition-all border border-gray-200">
+                    <CardContent className="p-5">
+                      <div className="flex items-start justify-between mb-4">
+                        <div>
+                          <div className="flex items-center gap-2 mb-2">
+                            <h4 className="font-bold text-gray-900">Pedido #{order.id.slice(0, 8).toUpperCase()}</h4>
+                            <Badge className={`${statusColors[order.status] || statusColors.pending} text-xs`}>
+                              {statusLabels[order.status] || order.status}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-gray-500 flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {new Date(order.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+                        <span className="text-sm text-gray-600">Total</span>
+                        <span className="text-xl font-bold text-orange-600">R$ {(order.total_milli/1000).toFixed(2)}</span>
+                      </div>
+            </CardContent>
+          </Card>
+                );
+              })}
             </div>
           )}
         </div>
-
-        <div className="grid md:grid-cols-3 gap-4 mt-8">
-          <Card className="hover:shadow-[var(--shadow-primary)] transition-shadow">
-            <CardHeader>
-              <CardTitle>Categorias</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-3 text-sm text-muted-foreground">
-                <span>Frutas</span>
-                <span>Verduras</span>
-                <span>Orgânicos</span>
-                <span>Promoções</span>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="hover:shadow-[var(--shadow-primary)] transition-shadow">
-            <CardHeader>
-              <CardTitle>Promoções</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">Ofertas da semana com até 30% OFF</p>
-            </CardContent>
-          </Card>
-
-          <Card className="hover:shadow-[var(--shadow-primary)] transition-shadow">
-            <CardHeader>
-              <CardTitle>Recomendados</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">Seleções fresquinhas para você 🍇🍉</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-4 mt-4">
-          <Card className="hover:shadow-[var(--shadow-primary)] transition-shadow">
-            <CardHeader>
-              <CardTitle>Lojas em destaque</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">Em breve: parceiros verificados perto de você</p>
-            </CardContent>
-          </Card>
-
-          <Card className="hover:shadow-[var(--shadow-primary)] transition-shadow">
-            <CardHeader>
-              <CardTitle>Pedidos recentes</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">Entre para ver seu histórico de pedidos</p>
-            </CardContent>
-          </Card>
-        </div>
+        
+        {/* Espaço para o carrinho flutuante no mobile */}
+        {items.length > 0 && <div className="h-20 md:hidden"></div>}
       </main>
     </div>
   );

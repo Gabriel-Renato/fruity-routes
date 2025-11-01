@@ -66,7 +66,7 @@ const Index = () => {
         <div className="container mx-auto px-4 relative z-10">
           <div className="text-center max-w-4xl mx-auto mb-16 animate-float">
             <h1 className="text-6xl md:text-8xl font-bold mb-6 bg-gradient-to-r from-primary via-secondary to-accent bg-clip-text text-transparent">
-              StarFruitC
+              StarFruit
             </h1>
             <p className="text-xl md:text-2xl text-foreground/80 mb-8">
               Delivery de frutas, verduras e produtos naturais 🍊🍉🍍
@@ -111,7 +111,7 @@ const Index = () => {
       <section className="py-20 bg-muted/50">
         <div className="container mx-auto px-4">
           <div className="text-center mb-12">
-            <h2 className="text-4xl font-bold mb-4">Como você quer usar o StarFruitC?</h2>
+            <h2 className="text-4xl font-bold mb-4">Como você quer usar o StarFruit?</h2>
             <p className="text-xl text-muted-foreground">
               Escolha a opção que melhor se encaixa com você
             </p>
@@ -150,7 +150,7 @@ const Index = () => {
       <footer className="bg-card border-t py-8">
         <div className="container mx-auto px-4 text-center">
           <p className="text-muted-foreground">
-            © 2025 StarFruitC. Frescor tropical na sua porta 🍊
+            © 2025 StarFruit. Frescor tropical na sua porta 🍊
           </p>
         </div>
       </footer>

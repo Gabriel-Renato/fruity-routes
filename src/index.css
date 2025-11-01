@@ -8,7 +8,7 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    /* StarFruitC - Tropical vibrant theme */
+    /* StarFruit - Tropical vibrant theme */
     --background: 48 100% 97%;
     --foreground: 163 100% 15%;
 
