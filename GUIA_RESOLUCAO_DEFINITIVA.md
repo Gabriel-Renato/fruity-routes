@@ -128,3 +128,5 @@ WHERE tgname = 'on_auth_user_created';
 - Logs: https://app.supabase.com/project/xtugvfvgskalkfviefxm/logs
 - SQL Editor: https://app.supabase.com/project/xtugvfvgskalkfviefxm/sql/new
 
+
+

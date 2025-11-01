@@ -5,26 +5,139 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/components/ui/use-toast";
 
 const NewProduct = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+
+  const handlePriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = e.target.value.replace(/[^\d,]/g, "");
+    setPrice(value);
+  };
+
+  const handlePriceBlur = () => {
+    if (price) {
+      const numValue = parseFloat(price.replace(",", "."));
+      if (!isNaN(numValue)) {
+        const formatted = numValue.toFixed(2).replace(".", ",");
+        setPrice(formatted);
+      }
+    }
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validar tipo de arquivo
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: "Erro",
+        description: "Por favor, selecione apenas imagens",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validar tamanho (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "Erro",
+        description: "A imagem deve ter no máximo 5MB",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from('products')
+        .upload(fileName, file);
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('products')
+        .getPublicUrl(fileName);
+
+      setImageUrl(publicUrl);
+      
+      toast({
+        title: "Sucesso!",
+        description: "Imagem carregada com sucesso",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Erro",
+        description: error.message || "Erro ao fazer upload da imagem",
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      navigate("/auth");
-      return;
+    setLoading(true);
+    
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        navigate("/auth");
+        return;
+      }
+      
+      const priceValue = price.replace(",", ".");
+      const priceMilli = Math.round(parseFloat(priceValue) * 1000);
+      
+      if (isNaN(priceMilli) || priceMilli <= 0) {
+        toast({
+          title: "Erro",
+          description: "Preço inválido",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const productData: any = {
+        store_id: user.id,
+        name,
+        price_milli: priceMilli,
+      };
+
+      if (imageUrl) {
+        productData.image_url = imageUrl;
+      }
+
+      await supabase.from("products").insert(productData);
+      
+      toast({
+        title: "Sucesso!",
+        description: "Produto cadastrado com sucesso",
+      });
+      
+      navigate("/dashboard/store");
+    } catch (error: any) {
+      toast({
+        title: "Erro",
+        description: error.message || "Erro ao cadastrar produto",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
     }
-    const priceMilli = Math.round(Number(price) * 1000);
-    await supabase.from("products").insert({
-      store_id: user.id,
-      name,
-      price_milli: priceMilli,
-    });
-    navigate("/dashboard/store");
   };
 
   return (
@@ -51,11 +164,41 @@ const NewProduct = () => {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="price">Preço (R$)</Label>
-                <Input id="price" type="number" min="0" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} required />
+                <Input 
+                  id="price" 
+                  type="text" 
+                  value={price} 
+                  onChange={handlePriceChange}
+                  onBlur={handlePriceBlur}
+                  placeholder="0,00"
+                  required 
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="image">Foto do Produto</Label>
+                <div className="flex items-center gap-4">
+                  <Input
+                    id="image"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    className="cursor-pointer"
+                    disabled={loading}
+                  />
+                  {imageUrl && (
+                    <div className="w-16 h-16 rounded-md overflow-hidden border">
+                      <img src={imageUrl} alt="Preview" className="w-full h-full object-cover" />
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => navigate("/dashboard/store")}>Cancelar</Button>
-                <Button type="submit" className="bg-gradient-to-r from-secondary to-accent">Salvar</Button>
+                <Button type="button" variant="outline" onClick={() => navigate("/dashboard/store")} disabled={loading}>
+                  Cancelar
+                </Button>
+                <Button type="submit" className="bg-gradient-to-r from-secondary to-accent" disabled={loading}>
+                  {loading ? "Salvando..." : "Salvar"}
+                </Button>
               </div>
             </form>
           </CardContent>

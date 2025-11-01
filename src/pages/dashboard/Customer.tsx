@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ShoppingBag, MapPin, Clock, User, Store, Star, TrendingDown, Sparkles, ShoppingCart } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -18,6 +19,8 @@ const CustomerDashboard = () => {
   const [recentOrders, setRecentOrders] = useState<Array<{ id: string; created_at: string; total_milli: number; status: string; store_id: string }>>([]);
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
   const [activeOrdersCount, setActiveOrdersCount] = useState(0);
+  const [selectedStore, setSelectedStore] = useState<any>(null);
+  const [isStoreModalOpen, setIsStoreModalOpen] = useState(false);
   const { addItem, items, totalMilli, clear } = useCart();
 
   useEffect(() => {
@@ -262,10 +265,8 @@ const CustomerDashboard = () => {
                         size="sm" 
                         className="w-full bg-orange-500 hover:bg-orange-600 rounded-full"
                         onClick={() => {
-                          const storeProducts = products.filter(p => p.store_id === store.owner_id);
-                          if (storeProducts.length > 0) {
-                            window.scrollTo({ top: document.querySelector('[data-products-section]')?.getBoundingClientRect().top || 0, behavior: 'smooth' });
-                          }
+                          setSelectedStore(store);
+                          setIsStoreModalOpen(true);
                         }}
                       >
                         Ver Produtos
@@ -611,6 +612,62 @@ const CustomerDashboard = () => {
         {/* Espaço para o carrinho flutuante no mobile */}
         {items.length > 0 && <div className="h-20 md:hidden"></div>}
       </main>
+
+      {/* Modal de Produtos da Loja */}
+      <Dialog open={isStoreModalOpen} onOpenChange={setIsStoreModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              <Store className="h-6 w-6 text-orange-500" />
+              {selectedStore?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="mt-4">
+            {selectedStore && (
+              <>
+                <div className="flex items-center gap-2 text-sm text-gray-500 mb-6">
+                  <MapPin className="h-4 w-4 text-orange-500" />
+                  <span>{selectedStore.city}{selectedStore.state ? `, ${selectedStore.state}` : ""}</span>
+                </div>
+                {(() => {
+                  const storeProducts = products.filter(p => p.store_id === selectedStore.owner_id);
+                  return storeProducts.length > 0 ? (
+                    <div className="grid md:grid-cols-3 gap-4">
+                      {storeProducts.map(p => (
+                        <Card key={p.id} className="bg-white hover:shadow-xl transition-all duration-300 border border-gray-200 overflow-hidden">
+                          <div className="relative h-40 bg-gradient-to-br from-orange-100 to-orange-200 flex items-center justify-center">
+                            <span className="text-6xl opacity-80">🍊</span>
+                          </div>
+                          <CardContent className="p-4">
+                            <h4 className="font-bold text-gray-900 mb-2">{p.name}</h4>
+                            <div className="flex items-center justify-between">
+                              <span className="text-xl font-bold text-orange-600">R$ {(p.price_milli/1000).toFixed(2)}</span>
+                              <Button 
+                                size="sm" 
+                                className="rounded-full bg-orange-500 hover:bg-orange-600 text-white"
+                                onClick={() => {
+                                  addItem({ productId: p.id, name: p.name, priceMilli: p.price_milli, storeId: p.store_id });
+                                }}
+                              >
+                                Adicionar
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-12 text-muted-foreground">
+                      <ShoppingBag className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                      <p className="text-lg font-medium">Esta loja ainda não tem produtos cadastrados</p>
+                    </div>
+                  );
+                })()}
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

@@ -109,3 +109,5 @@ SELECT EXISTS (
 -- ❌ Se algo falhar aqui, o problema está no schema do Supabase
 -- ============================================================================
 
+
+

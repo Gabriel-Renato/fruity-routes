@@ -111,3 +111,5 @@ Após configurar o banco:
 - Dashboard: https://app.supabase.com/project/lnnmtvkvngqyyllfezcf
 - SQL Editor: https://app.supabase.com/project/lnnmtvkvngqyyllfezcf/sql/new
 
+
+
