@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ShoppingBag, MapPin, Clock, User, Store, Star, TrendingDown, Sparkles, ShoppingCart } from "lucide-react";
+import { ShoppingBag, MapPin, Clock, User, Store, Star, TrendingDown, Sparkles, ShoppingCart, CreditCard, Wallet, QrCode } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -21,6 +21,8 @@ const CustomerDashboard = () => {
   const [activeOrdersCount, setActiveOrdersCount] = useState(0);
   const [selectedStore, setSelectedStore] = useState<any>(null);
   const [isStoreModalOpen, setIsStoreModalOpen] = useState(false);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
   const { addItem, items, totalMilli, clear } = useCart();
 
   useEffect(() => {
@@ -124,6 +126,66 @@ const CustomerDashboard = () => {
 
   const goToLogin = () => {
     navigate("/auth");
+  };
+
+  // Finalizar pedido com método de pagamento
+  const finalizeOrder = async () => {
+    if (!selectedPaymentMethod) {
+      alert('Selecione uma forma de pagamento');
+      return;
+    }
+    
+    const { data: { user: u } } = await supabase.auth.getUser();
+    if (!u) { navigate('/auth'); return; }
+    if (items.length === 0) return;
+    
+    const storeId = items[0].storeId;
+    const { data: order, error } = await supabase
+      .from('orders')
+      .insert({ 
+        customer_id: u.id, 
+        store_id: storeId, 
+        total_milli: totalMilli,
+        payment_method: selectedPaymentMethod
+      })
+      .select('*')
+      .single();
+    
+    if (!order || error) {
+      console.error('Erro ao criar pedido:', error);
+      alert('Erro ao finalizar pedido. Tente novamente.');
+      return;
+    }
+    
+    const payload = items.map(i => ({ 
+      order_id: order.id, 
+      product_id: i.productId, 
+      qty: i.qty, 
+      unit_price_milli: i.priceMilli, 
+      subtotal_milli: i.priceMilli*i.qty 
+    }));
+    
+    const { error: itemsError } = await supabase.from('order_items').insert(payload);
+    
+    if (itemsError) {
+      console.error('Erro ao adicionar itens:', itemsError);
+      alert('Erro ao adicionar itens ao pedido.');
+      return;
+    }
+    
+    clear();
+    setIsPaymentModalOpen(false);
+    setSelectedPaymentMethod(null);
+    
+    const { data: orders } = await supabase
+      .from("orders")
+      .select("id, created_at, total_milli, status, store_id")
+      .eq("customer_id", u.id)
+      .order("created_at", { ascending: false })
+      .limit(5);
+    setRecentOrders(orders || []);
+    
+    alert('Pedido realizado com sucesso!');
   };
 
   // Produtos com desconto (promoções)
@@ -442,24 +504,7 @@ const CustomerDashboard = () => {
               </div>
               <Button 
                 className="rounded-full bg-orange-500 hover:bg-orange-600 px-6"
-                onClick={async () => {
-                  const { data: { user: u } } = await supabase.auth.getUser();
-                  if (!u) { navigate('/auth'); return; }
-                  if (items.length === 0) return;
-                  const storeId = items[0].storeId;
-                  const { data: order, error } = await supabase.from('orders').insert({ customer_id: u.id, store_id: storeId, total_milli: totalMilli }).select('*').single();
-                  if (!order || error) return;
-                  const payload = items.map(i => ({ order_id: order.id, product_id: i.productId, qty: i.qty, unit_price_milli: i.priceMilli, subtotal_milli: i.priceMilli*i.qty }));
-                  await supabase.from('order_items').insert(payload);
-                  clear();
-                  const { data: orders } = await supabase
-                    .from("orders")
-                    .select("id, created_at, total_milli, status, store_id")
-                    .eq("customer_id", u.id)
-                    .order("created_at", { ascending: false })
-                    .limit(5);
-                  setRecentOrders(orders || []);
-                }}
+                onClick={() => setIsPaymentModalOpen(true)}
               >
                 Finalizar
               </Button>
@@ -508,24 +553,7 @@ const CustomerDashboard = () => {
                       <Button variant="outline" onClick={clear} className="flex-1 rounded-full">Limpar Carrinho</Button>
                       <Button 
                         className="flex-1 rounded-full bg-orange-500 hover:bg-orange-600"
-                        onClick={async () => {
-                          const { data: { user: u } } = await supabase.auth.getUser();
-                          if (!u) { navigate('/auth'); return; }
-                          if (items.length === 0) return;
-                          const storeId = items[0].storeId;
-                          const { data: order, error } = await supabase.from('orders').insert({ customer_id: u.id, store_id: storeId, total_milli: totalMilli }).select('*').single();
-                          if (!order || error) return;
-                          const payload = items.map(i => ({ order_id: order.id, product_id: i.productId, qty: i.qty, unit_price_milli: i.priceMilli, subtotal_milli: i.priceMilli*i.qty }));
-                          await supabase.from('order_items').insert(payload);
-                          clear();
-                          const { data: orders } = await supabase
-                            .from("orders")
-                            .select("id, created_at, total_milli, status, store_id")
-                            .eq("customer_id", u.id)
-                            .order("created_at", { ascending: false })
-                            .limit(5);
-                          setRecentOrders(orders || []);
-                        }}
+                        onClick={() => setIsPaymentModalOpen(true)}
                       >
                         Finalizar Pedido
                       </Button>
@@ -665,6 +693,109 @@ const CustomerDashboard = () => {
                 })()}
               </>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Formas de Pagamento */}
+      <Dialog open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              <CreditCard className="h-6 w-6 text-orange-500" />
+              Escolha a Forma de Pagamento
+            </DialogTitle>
+          </DialogHeader>
+          <div className="mt-6">
+            <div className="space-y-3">
+              {[
+                { 
+                  id: 'credit_card', 
+                  name: 'Cartão de Crédito', 
+                  icon: CreditCard, 
+                  desc: 'Visa, Mastercard, Elo'
+                },
+                { 
+                  id: 'debit_card', 
+                  name: 'Cartão de Débito', 
+                  icon: CreditCard, 
+                  desc: 'Visa, Mastercard, Elo'
+                },
+                { 
+                  id: 'pix', 
+                  name: 'PIX', 
+                  icon: QrCode, 
+                  desc: 'Aprovação instantânea'
+                },
+                { 
+                  id: 'cash', 
+                  name: 'Dinheiro', 
+                  icon: Wallet, 
+                  desc: 'Entrega'
+                },
+              ].map((method) => {
+                const Icon = method.icon;
+                const isSelected = selectedPaymentMethod === method.id;
+                return (
+                  <button
+                    key={method.id}
+                    onClick={() => setSelectedPaymentMethod(method.id)}
+                    className={`w-full p-4 rounded-lg border-2 transition-all ${
+                      isSelected 
+                        ? 'border-orange-500 bg-orange-50' 
+                        : 'border-gray-200 hover:border-orange-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                          isSelected ? 'bg-orange-500' : 'bg-gray-100'
+                        }`}>
+                          <Icon className={`h-6 w-6 ${isSelected ? 'text-white' : 'text-gray-600'}`} />
+                        </div>
+                        <div className="text-left">
+                          <div className={`font-semibold ${isSelected ? 'text-orange-600' : 'text-gray-900'}`}>
+                            {method.name}
+                          </div>
+                          <div className="text-sm text-gray-500">{method.desc}</div>
+                        </div>
+                      </div>
+                      {isSelected && (
+                        <div className="w-6 h-6 rounded-full bg-orange-500 flex items-center justify-center">
+                          <span className="text-white text-sm">✓</span>
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            
+            <div className="mt-8 pt-6 border-t border-gray-200">
+              <div className="flex items-center justify-between mb-6">
+                <span className="text-lg font-semibold text-gray-700">Total</span>
+                <span className="text-3xl font-bold text-orange-600">R$ {(totalMilli/1000).toFixed(2)}</span>
+              </div>
+              <div className="flex gap-3">
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setIsPaymentModalOpen(false);
+                    setSelectedPaymentMethod(null);
+                  }}
+                  className="flex-1 rounded-full"
+                >
+                  Cancelar
+                </Button>
+                <Button 
+                  onClick={finalizeOrder}
+                  disabled={!selectedPaymentMethod}
+                  className="flex-1 rounded-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Confirmar Pedido
+                </Button>
+              </div>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

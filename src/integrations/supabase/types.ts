@@ -105,9 +105,9 @@ export type Database = {
         Relationships: []
       },
       orders: {
-        Row: { id: string; customer_id: string; store_id: string; status: string; total_milli: number; created_at: string | null }
-        Insert: { id?: string; customer_id: string; store_id: string; status?: string; total_milli?: number; created_at?: string | null }
-        Update: { id?: string; customer_id?: string; store_id?: string; status?: string; total_milli?: number; created_at?: string | null }
+        Row: { id: string; customer_id: string; store_id: string; status: string; total_milli: number; payment_method: string | null; rider_id: string | null; created_at: string | null }
+        Insert: { id?: string; customer_id: string; store_id: string; status?: string; total_milli?: number; payment_method?: string; rider_id?: string; created_at?: string | null }
+        Update: { id?: string; customer_id?: string; store_id?: string; status?: string; total_milli?: number; payment_method?: string; rider_id?: string; created_at?: string | null }
         Relationships: []
       },
       order_items: {

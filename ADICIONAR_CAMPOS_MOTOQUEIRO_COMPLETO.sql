@@ -38,14 +38,15 @@ do $$
 declare
   v_all_fields_exist boolean := true;
   v_field_exists boolean;
+  v_field_name text;
+  v_fields_array text[] := array[
+    'cnh_number', 'cnh_category', 'cnh_expiry', 
+    'vehicle_type', 'vehicle_plate', 'phone',
+    'rating', 'total_ratings'
+  ];
 begin
   -- Verificar cada campo
-  for v_field_name in 
-    select unnest(array[
-      'cnh_number', 'cnh_category', 'cnh_expiry', 
-      'vehicle_type', 'vehicle_plate', 'phone',
-      'rating', 'total_ratings'
-    ]) as field_name
+  foreach v_field_name in array v_fields_array
   loop
     select exists(
       select 1 from information_schema.columns 

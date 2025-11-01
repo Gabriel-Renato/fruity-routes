@@ -41,19 +41,21 @@ const RiderDashboard = () => {
     checkUser();
   }, [navigate]);
 
-  // Carregar entregas disponíveis
+  // Carregar entregas disponíveis (pedidos atribuídos a este motorista)
   useEffect(() => {
     const loadAvailableDeliveries = async () => {
+      if (!user) return;
       const { data } = await supabase
         .from("orders")
-        .select("id, customer_id, store_id, total_milli, created_at, status")
-        .eq("status", "ready")
+        .select("id, customer_id, store_id, total_milli, created_at, status, payment_method")
+        .eq("rider_id", user.id)
+        .in("status", ["ready", "on_way"])
         .order("created_at", { ascending: true })
         .limit(10);
       setAvailableDeliveries(data || []);
     };
     loadAvailableDeliveries();
-  }, []);
+  }, [user]);
 
   // Carregar histórico de entregas
   useEffect(() => {
@@ -88,6 +90,55 @@ const RiderDashboard = () => {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate("/");
+  };
+
+  const handleAcceptDelivery = async (orderId: string) => {
+    if (!user) return;
+    
+    const { error } = await supabase
+      .from("orders")
+      .update({ status: "on_way" })
+      .eq("id", orderId)
+      .eq("rider_id", user.id);
+    
+    if (error) {
+      console.error('Erro ao aceitar entrega:', error);
+      alert('Erro ao aceitar entrega. Tente novamente.');
+    } else {
+      setAvailableDeliveries(availableDeliveries.map(d => 
+        d.id === orderId ? { ...d, status: "on_way" } : d
+      ));
+      alert('Entrega aceita com sucesso!');
+    }
+  };
+
+  const handleCompleteDelivery = async (orderId: string) => {
+    if (!user) return;
+    
+    const { error } = await supabase
+      .from("orders")
+      .update({ status: "delivered" })
+      .eq("id", orderId)
+      .eq("rider_id", user.id);
+    
+    if (error) {
+      console.error('Erro ao completar entrega:', error);
+      alert('Erro ao completar entrega. Tente novamente.');
+    } else {
+      setAvailableDeliveries(availableDeliveries.filter(d => d.id !== orderId));
+      alert('Entrega finalizada com sucesso!');
+      
+      // Recarregar histórico
+      if (user) {
+        const { data } = await supabase
+          .from("orders")
+          .select("id, customer_id, store_id, total_milli, created_at, status")
+          .in("status", ["delivered", "on_way"])
+          .order("created_at", { ascending: false })
+          .limit(10);
+        setDeliveryHistory(data || []);
+      }
+    }
   };
 
   const isCnhExpiringSoon = profile?.cnh_expiry ? new Date(profile.cnh_expiry) < new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) : false;
@@ -300,7 +351,9 @@ const RiderDashboard = () => {
               ) : (
                 <div className="space-y-3">
                   {availableDeliveries.map(delivery => (
-                    <Card key={delivery.id} className="border border-green-200 bg-green-50 hover:shadow-md transition-all">
+                    <Card key={delivery.id} className={`border hover:shadow-md transition-all ${
+                      delivery.status === "ready" ? "border-green-200 bg-green-50" : "border-blue-200 bg-blue-50"
+                    }`}>
                       <CardContent className="p-4">
                         <div className="flex items-start justify-between mb-3">
                           <div>
@@ -309,16 +362,42 @@ const RiderDashboard = () => {
                               <Clock className="h-3 w-3 inline mr-1" />
                               {new Date(delivery.created_at).toLocaleString('pt-BR')}
                             </p>
+                            {delivery.payment_method && (
+                              <p className="text-xs text-gray-500 mt-1">
+                                💳 {delivery.payment_method === 'credit_card' ? 'Cartão de Crédito' : 
+                                     delivery.payment_method === 'debit_card' ? 'Cartão de Débito' :
+                                     delivery.payment_method === 'pix' ? 'PIX' :
+                                     delivery.payment_method === 'cash' ? 'Dinheiro' : delivery.payment_method}
+                              </p>
+                            )}
                           </div>
-                          <Badge className="bg-green-500 text-white">Disponível</Badge>
+                          <Badge className={`text-white ${
+                            delivery.status === "ready" ? "bg-green-500" : "bg-blue-500"
+                          }`}>
+                            {delivery.status === "ready" ? "Pronto" : "Em Rota"}
+                          </Badge>
                         </div>
-                        <div className="flex items-center justify-between pt-3 border-t border-green-200">
+                        <div className="flex items-center justify-between pt-3 border-t border-gray-200">
                           <span className="text-sm text-gray-700">Ganho estimado</span>
-                          <span className="text-lg font-bold text-green-600">R$ {((delivery.total_milli || 0) * 0.1 / 1000).toFixed(2)}</span>
+                          <span className={`text-lg font-bold ${delivery.status === "ready" ? "text-green-600" : "text-blue-600"}`}>
+                            R$ {((delivery.total_milli || 0) * 0.1 / 1000).toFixed(2)}
+                          </span>
                         </div>
-                        <Button className="w-full mt-3 rounded-full bg-green-500 hover:bg-green-600">
-                          Aceitar Entrega
-                        </Button>
+                        {delivery.status === "ready" ? (
+                          <Button 
+                            className="w-full mt-3 rounded-full bg-green-500 hover:bg-green-600"
+                            onClick={() => handleAcceptDelivery(delivery.id)}
+                          >
+                            Aceitar Entrega
+                          </Button>
+                        ) : (
+                          <Button 
+                            className="w-full mt-3 rounded-full bg-blue-500 hover:bg-blue-600"
+                            onClick={() => handleCompleteDelivery(delivery.id)}
+                          >
+                            Finalizar Entrega
+                          </Button>
+                        )}
                       </CardContent>
                     </Card>
                   ))}

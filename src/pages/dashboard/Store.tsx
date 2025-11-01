@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Store, Package, TrendingUp, DollarSign, Plus, Edit, Trash2, ShoppingBag, Clock, Star, MapPin, User } from "lucide-react";
+import { Store, Package, TrendingUp, DollarSign, Plus, Edit, Trash2, ShoppingBag, Clock, Star, MapPin, User, Bike } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 
 const StoreDashboard = () => {
@@ -12,7 +12,8 @@ const StoreDashboard = () => {
   const { toast } = useToast();
   const [user, setUser] = useState<any>(null);
   const [products, setProducts] = useState<Array<{ id: string; name: string; price_milli: number }>>([]);
-  const [orders, setOrders] = useState<Array<{ id: string; created_at: string; total_milli: number; status: string; customer_id: string }>>([]);
+  const [orders, setOrders] = useState<any[]>([]);
+  const [availableRiders, setAvailableRiders] = useState<any[]>([]);
   const [stats, setStats] = useState({
     totalProducts: 0,
     ordersToday: 0,
@@ -39,7 +40,7 @@ const StoreDashboard = () => {
         // Carregar pedidos
         const { data: ordersData } = await supabase
           .from("orders")
-          .select("id, created_at, total_milli, status, customer_id")
+          .select("id, created_at, total_milli, status, customer_id, payment_method, rider_id")
           .eq("store_id", user.id)
           .order("created_at", { ascending: false });
         setOrders(ordersData || []);
@@ -64,6 +65,18 @@ const StoreDashboard = () => {
 
     checkUser();
   }, [navigate]);
+
+  // Carregar motoristas disponíveis
+  useEffect(() => {
+    const loadRiders = async () => {
+      const { data: ridersData } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .eq("user_type", "rider");
+      setAvailableRiders(ridersData || []);
+    };
+    loadRiders();
+  }, []);
 
   const handleDeleteProduct = async (productId: string) => {
     if (!confirm("Tem certeza que deseja excluir este produto?")) return;
@@ -105,6 +118,39 @@ const StoreDashboard = () => {
       toast({
         title: "Status atualizado",
         description: "Status do pedido atualizado com sucesso",
+      });
+    }
+  };
+
+  const handleAssignRider = async (orderId: string) => {
+    // Selecionar um motorista aleatório disponível
+    if (availableRiders.length === 0) {
+      toast({
+        title: "Erro",
+        description: "Nenhum motorista disponível no momento",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const randomRider = availableRiders[Math.floor(Math.random() * availableRiders.length)];
+    
+    const { error } = await supabase
+      .from("orders")
+      .update({ rider_id: randomRider.id, status: "ready" })
+      .eq("id", orderId);
+    
+    if (error) {
+      toast({
+        title: "Erro",
+        description: "Não foi possível atribuir motorista",
+        variant: "destructive",
+      });
+    } else {
+      setOrders(orders.map(o => o.id === orderId ? { ...o, rider_id: randomRider.id, status: "ready" } : o));
+      toast({
+        title: "Motorista atribuído",
+        description: `Motorista ${randomRider.full_name} foi notificado`,
       });
     }
   };
@@ -350,7 +396,7 @@ const StoreDashboard = () => {
                     delivered: "Entregue",
                     cancelled: "Cancelado"
                   };
-                  return (
+                    return (
                     <div key={order.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex-1">
@@ -364,9 +410,37 @@ const StoreDashboard = () => {
                             <Clock className="h-3 w-3" />
                             {new Date(order.created_at).toLocaleString('pt-BR')}
                           </p>
+                          {order.payment_method && (
+                            <p className="text-xs text-gray-500 mt-1">
+                              💳 Pagamento: {order.payment_method === 'credit_card' ? 'Cartão de Crédito' : 
+                                            order.payment_method === 'debit_card' ? 'Cartão de Débito' :
+                                            order.payment_method === 'pix' ? 'PIX' :
+                                            order.payment_method === 'cash' ? 'Dinheiro' : order.payment_method}
+                            </p>
+                          )}
                         </div>
                         <span className="text-lg font-bold text-blue-600 ml-4">R$ {(order.total_milli/1000).toFixed(2)}</span>
                       </div>
+                      {order.status === "ready" && !order.rider_id && (
+                        <div className="mt-3 pt-3 border-t border-gray-200">
+                          <Button 
+                            size="sm" 
+                            className="w-full rounded-full bg-green-500 hover:bg-green-600"
+                            onClick={() => handleAssignRider(order.id)}
+                          >
+                            <Bike className="h-4 w-4 mr-2" />
+                            Solicitar Motorista
+                          </Button>
+                        </div>
+                      )}
+                      {order.rider_id && (
+                        <div className="mt-2 pt-2 border-t border-gray-200">
+                          <p className="text-xs text-green-600 flex items-center gap-1">
+                            <Bike className="h-3 w-3" />
+                            Motorista atribuído
+                          </p>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
