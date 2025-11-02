@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/components/ui/use-toast";
 
@@ -13,6 +14,7 @@ const NewProduct = () => {
   const [loading, setLoading] = useState(false);
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
+  const [unit, setUnit] = useState("unidade");
   const [imageUrl, setImageUrl] = useState("");
 
   const handlePriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -115,6 +117,7 @@ const NewProduct = () => {
         store_id: user.id,
         name,
         price_milli: priceMilli,
+        unit,
       };
 
       if (imageUrl) {
@@ -162,17 +165,36 @@ const NewProduct = () => {
                 <Label htmlFor="name">Nome</Label>
                 <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="price">Preço (R$)</Label>
-                <Input 
-                  id="price" 
-                  type="text" 
-                  value={price} 
-                  onChange={handlePriceChange}
-                  onBlur={handlePriceBlur}
-                  placeholder="0,00"
-                  required 
-                />
+              <div className="grid grid-cols-3 gap-2">
+                <div className="col-span-2 space-y-2">
+                  <Label htmlFor="price">Preço (R$)</Label>
+                  <Input 
+                    id="price" 
+                    type="text" 
+                    value={price} 
+                    onChange={handlePriceChange}
+                    onBlur={handlePriceBlur}
+                    placeholder="0,00"
+                    required 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="unit">Unidade</Label>
+                  <Select value={unit} onValueChange={setUnit}>
+                    <SelectTrigger id="unit">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="unidade">Unidade</SelectItem>
+                      <SelectItem value="kg">Quilograma</SelectItem>
+                      <SelectItem value="g">Grama</SelectItem>
+                      <SelectItem value="litro">Litro</SelectItem>
+                      <SelectItem value="ml">Mililitro</SelectItem>
+                      <SelectItem value="pacote">Pacote</SelectItem>
+                      <SelectItem value="caixa">Caixa</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="image">Foto do Produto</Label>

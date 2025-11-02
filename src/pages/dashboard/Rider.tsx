@@ -47,7 +47,7 @@ const RiderDashboard = () => {
       if (!user) return;
       const { data } = await supabase
         .from("orders")
-        .select("id, customer_id, store_id, total_milli, created_at, status, payment_method")
+        .select("id, customer_id, store_id, total_milli, created_at, status, payment_method, delivery_street, delivery_city, delivery_state, delivery_zip, delivery_complement")
         .eq("rider_id", user.id)
         .in("status", ["ready", "on_way"])
         .order("created_at", { ascending: true })
@@ -371,6 +371,15 @@ const RiderDashboard = () => {
                                      delivery.payment_method === 'debit_card' ? 'Cartão de Débito' :
                                      delivery.payment_method === 'pix' ? 'PIX' :
                                      delivery.payment_method === 'cash' ? 'Dinheiro' : delivery.payment_method}
+                              </p>
+                            )}
+                            {(delivery.delivery_street || delivery.delivery_city) && (
+                              <p className="text-xs text-gray-600 mt-2 flex items-center gap-1">
+                                <MapPin className="h-3 w-3 text-purple-600" />
+                                {delivery.delivery_street && <span>{delivery.delivery_street}</span>}
+                                {delivery.delivery_city && delivery.delivery_state && (
+                                  <span>{delivery.delivery_city}, {delivery.delivery_state}</span>
+                                )}
                               </p>
                             )}
                           </div>

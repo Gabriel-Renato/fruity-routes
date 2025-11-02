@@ -40,7 +40,7 @@ const StoreDashboard = () => {
         // Carregar pedidos
         const { data: ordersData } = await supabase
           .from("orders")
-          .select("id, created_at, total_milli, status, customer_id, payment_method, rider_id")
+          .select("id, created_at, total_milli, status, customer_id, payment_method, rider_id, delivery_street, delivery_city, delivery_state, delivery_zip, delivery_complement")
           .eq("store_id", user.id)
           .order("created_at", { ascending: false });
         setOrders(ordersData || []);
@@ -416,6 +416,15 @@ const StoreDashboard = () => {
                                             order.payment_method === 'debit_card' ? 'Cartão de Débito' :
                                             order.payment_method === 'pix' ? 'PIX' :
                                             order.payment_method === 'cash' ? 'Dinheiro' : order.payment_method}
+                            </p>
+                          )}
+                          {(order.delivery_street || order.delivery_city) && (
+                            <p className="text-xs text-gray-600 mt-2 flex items-center gap-1">
+                              <MapPin className="h-3 w-3 text-green-600" />
+                              {order.delivery_street && <span>{order.delivery_street}</span>}
+                              {order.delivery_city && order.delivery_state && (
+                                <span>{order.delivery_city}, {order.delivery_state}</span>
+                              )}
                             </p>
                           )}
                         </div>

@@ -10,6 +10,7 @@ import StoreDashboard from "./pages/dashboard/Store";
 import RiderDashboard from "./pages/dashboard/Rider";
 import Profile from "./pages/profile/Profile";
 import NewProduct from "./pages/store/NewProduct";
+import EditProduct from "./pages/store/EditProduct";
 import NotFound from "./pages/NotFound";
 import { CartProvider } from "./context/CartContext";
 
@@ -30,6 +31,7 @@ const App = () => (
           <Route path="/dashboard/rider" element={<RiderDashboard />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/store/products/new" element={<NewProduct />} />
+          <Route path="/store/products/edit/:id" element={<EditProduct />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

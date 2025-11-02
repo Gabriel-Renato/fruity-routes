@@ -5,24 +5,32 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ShoppingBag, MapPin, Clock, User, Store, Star, TrendingDown, Sparkles, ShoppingCart, CreditCard, Wallet, QrCode } from "lucide-react";
+import { ShoppingBag, MapPin, Clock, User, Store, Star, TrendingDown, Sparkles, ShoppingCart, CreditCard, Wallet, QrCode, Bike } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/components/ui/use-toast";
 
 const CustomerDashboard = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [user, setUser] = useState<any>(null);
   const [userType, setUserType] = useState<string | null>(null);
   const [profile, setProfile] = useState<any>(null);
   const [products, setProducts] = useState<Array<{ id: string; name: string; price_milli: number; store_id: string }>>([]);
-  const [nearbyStores, setNearbyStores] = useState<Array<{ id: string; name: string; city: string | null; state: string | null; owner_id: string }>>([]);
+  const [nearbyStores, setNearbyStores] = useState<any[]>([]);
   const [recentOrders, setRecentOrders] = useState<Array<{ id: string; created_at: string; total_milli: number; status: string; store_id: string }>>([]);
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
   const [activeOrdersCount, setActiveOrdersCount] = useState(0);
   const [selectedStore, setSelectedStore] = useState<any>(null);
   const [isStoreModalOpen, setIsStoreModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [isActiveOrdersModalOpen, setIsActiveOrdersModalOpen] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
+  const [addresses, setAddresses] = useState<any[]>([]);
+  const [selectedAddress, setSelectedAddress] = useState<any>(null);
+  const [activeOrders, setActiveOrders] = useState<any[]>([]);
+  const [historyOrders, setHistoryOrders] = useState<any[]>([]);
   const { addItem, items, totalMilli, clear } = useCart();
 
   useEffect(() => {
@@ -79,13 +87,23 @@ const CustomerDashboard = () => {
     const loadNearbyStores = async () => {
       if (!profile?.city) return;
       
-      const { data } = await supabase
-        .from("stores")
-        .select("id, name, city, state, owner_id")
-        .eq("city", profile.city)
-        .eq("active", true);
-      
-      setNearbyStores(data || []);
+      try {
+        const { data, error } = await supabase
+          .from("stores")
+          .select("id, name, city, state, owner_id")
+          .eq("city", profile.city)
+          .eq("active", true);
+        
+        if (error) {
+          console.error('Erro ao carregar lojas:', error);
+          setNearbyStores([]);
+        } else {
+          setNearbyStores(data || []);
+        }
+      } catch (err) {
+        console.error('Erro ao carregar lojas:', err);
+        setNearbyStores([]);
+      }
     };
     
     loadNearbyStores();
@@ -119,6 +137,83 @@ const CustomerDashboard = () => {
     }
   }, [user]);
 
+  useEffect(() => {
+    const loadActiveOrders = async () => {
+      if (!user || !isActiveOrdersModalOpen) return;
+      
+      const { data: orders } = await supabase
+        .from("orders")
+        .select("id, created_at, total_milli, status, store_id, rider_id, payment_method, delivery_street, delivery_city, delivery_state, delivery_zip")
+        .eq("customer_id", user.id)
+        .in("status", ["pending", "preparing", "ready", "on_way"])
+        .order("created_at", { ascending: false });
+      
+      setActiveOrders(orders || []);
+    };
+    
+    if (user && isActiveOrdersModalOpen) {
+      loadActiveOrders();
+    }
+  }, [user, isActiveOrdersModalOpen]);
+
+  useEffect(() => {
+    const loadHistoryOrders = async () => {
+      if (!user || !isHistoryModalOpen) return;
+      
+      const { data: orders } = await supabase
+        .from("orders")
+        .select(`
+          id, 
+          created_at, 
+          total_milli, 
+          status, 
+          store_id, 
+          rider_id, 
+          payment_method, 
+          delivery_street, 
+          delivery_city, 
+          delivery_state, 
+          delivery_zip,
+          order_items(
+            product_id, 
+            qty, 
+            unit_price_milli, 
+            subtotal_milli, 
+            products(name, unit)
+          )
+        `)
+        .eq("customer_id", user.id)
+        .order("created_at", { ascending: false });
+      
+      setHistoryOrders(orders || []);
+    };
+    
+    if (user && isHistoryModalOpen) {
+      loadHistoryOrders();
+    }
+  }, [user, isHistoryModalOpen]);
+
+  useEffect(() => {
+    const loadAddresses = async () => {
+      if (!user) return;
+      
+      const { data } = await supabase
+        .from("addresses")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+      
+      if (data && data.length > 0) {
+        setAddresses(data);
+        setSelectedAddress(data[0]); // Seleciona o primeiro endereço por padrão
+      }
+    };
+    
+    if (user) {
+      loadAddresses();
+    }
+  }, [user]);
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate("/");
@@ -131,7 +226,20 @@ const CustomerDashboard = () => {
   // Finalizar pedido com método de pagamento
   const finalizeOrder = async () => {
     if (!selectedPaymentMethod) {
-      alert('Selecione uma forma de pagamento');
+      toast({
+        title: "Atenção",
+        description: "Selecione uma forma de pagamento",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!selectedAddress) {
+      toast({
+        title: "Atenção",
+        description: "É necessário ter um endereço cadastrado. Complete seu perfil primeiro.",
+        variant: "destructive",
+      });
       return;
     }
     
@@ -146,14 +254,23 @@ const CustomerDashboard = () => {
         customer_id: u.id, 
         store_id: storeId, 
         total_milli: totalMilli,
-        payment_method: selectedPaymentMethod
+        payment_method: selectedPaymentMethod,
+        delivery_street: selectedAddress.street,
+        delivery_city: selectedAddress.city,
+        delivery_state: selectedAddress.state,
+        delivery_zip: selectedAddress.zip,
+        delivery_complement: selectedAddress.label
       })
       .select('*')
       .single();
     
     if (!order || error) {
       console.error('Erro ao criar pedido:', error);
-      alert('Erro ao finalizar pedido. Tente novamente.');
+      toast({
+        title: "Erro",
+        description: error?.message || "Erro ao finalizar pedido. Tente novamente.",
+        variant: "destructive",
+      });
       return;
     }
     
@@ -169,7 +286,11 @@ const CustomerDashboard = () => {
     
     if (itemsError) {
       console.error('Erro ao adicionar itens:', itemsError);
-      alert('Erro ao adicionar itens ao pedido.');
+      toast({
+        title: "Erro",
+        description: "Erro ao adicionar itens ao pedido.",
+        variant: "destructive",
+      });
       return;
     }
     
@@ -185,7 +306,10 @@ const CustomerDashboard = () => {
       .limit(5);
     setRecentOrders(orders || []);
     
-    alert('Pedido realizado com sucesso!');
+    toast({
+      title: "Sucesso!",
+      description: "Pedido realizado com sucesso!",
+    });
   };
 
   // Produtos com desconto (promoções)
@@ -237,11 +361,10 @@ const CustomerDashboard = () => {
         </div>
 
         {/* Cards de estatísticas melhorados */}
-        <div className="grid md:grid-cols-4 gap-4 mb-6">
+        <div className="grid md:grid-cols-3 gap-4 mb-6">
           {[
-            { icon: ShoppingBag, label: "Pedidos Ativos", value: activeOrdersCount.toString(), color: "bg-blue-500", textColor: "text-blue-600", onClick: undefined },
-            { icon: Clock, label: "Histórico", value: recentOrders.length.toString(), color: "bg-purple-500", textColor: "text-purple-600", onClick: undefined },
-            { icon: MapPin, label: "Endereços", value: "1", color: "bg-green-500", textColor: "text-green-600", onClick: undefined },
+            { icon: ShoppingBag, label: "Pedidos Ativos", value: activeOrdersCount.toString(), color: "bg-blue-500", textColor: "text-blue-600", onClick: () => setIsActiveOrdersModalOpen(true) },
+            { icon: Clock, label: "Histórico", value: recentOrders.length.toString(), color: "bg-purple-500", textColor: "text-purple-600", onClick: () => setIsHistoryModalOpen(true) },
             { icon: User, label: "Perfil", value: profile?.city ? "✓" : "!", color: "bg-orange-500", textColor: "text-orange-600", onClick: () => navigate("/profile") },
           ].map((stat) => {
             const Icon = stat.icon;
@@ -707,11 +830,90 @@ const CustomerDashboard = () => {
           <DialogHeader>
             <DialogTitle className="text-2xl font-bold text-gray-900 flex items-center gap-2">
               <CreditCard className="h-6 w-6 text-orange-500" />
-              Escolha a Forma de Pagamento
+              Finalizar Pedido
             </DialogTitle>
           </DialogHeader>
-          <div className="mt-6">
-            <div className="space-y-3">
+          <div className="mt-6 space-y-6">
+            {/* Seção de Endereço */}
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <MapPin className="h-5 w-5 text-orange-500" />
+                Endereço de Entrega
+              </h3>
+              {addresses.length === 0 ? (
+                <div className="p-4 rounded-lg border-2 border-yellow-200 bg-yellow-50">
+                  <p className="text-sm text-yellow-800">
+                    Você precisa cadastrar um endereço antes de finalizar o pedido. 
+                    <Button 
+                      variant="link" 
+                      className="p-0 h-auto ml-1 text-orange-600 hover:text-orange-700"
+                      onClick={() => {
+                        setIsPaymentModalOpen(false);
+                        navigate("/profile");
+                      }}
+                    >
+                      Clique aqui para cadastrar.
+                    </Button>
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {addresses.map((addr) => {
+                    const isSelected = selectedAddress?.id === addr.id;
+                    return (
+                      <button
+                        key={addr.id}
+                        onClick={() => setSelectedAddress(addr)}
+                        className={`w-full p-4 rounded-lg border-2 transition-all text-left ${
+                          isSelected 
+                            ? 'border-orange-500 bg-orange-50' 
+                            : 'border-gray-200 hover:border-orange-300'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            {addr.label && (
+                              <div className="font-semibold text-gray-900 mb-1">{addr.label}</div>
+                            )}
+                            <div className="text-sm text-gray-600">
+                              {addr.street && <div>{addr.street}</div>}
+                              <div>
+                                {addr.city && addr.state ? `${addr.city}, ${addr.state}` : addr.city || addr.state}
+                                {addr.zip && ` - ${addr.zip}`}
+                              </div>
+                            </div>
+                          </div>
+                          {isSelected && (
+                            <div className="w-6 h-6 rounded-full bg-orange-500 flex items-center justify-center ml-4">
+                              <span className="text-white text-sm">✓</span>
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                  <Button 
+                    variant="outline" 
+                    className="w-full mt-2"
+                    onClick={() => {
+                      setIsPaymentModalOpen(false);
+                      navigate("/profile");
+                    }}
+                  >
+                    <MapPin className="h-4 w-4 mr-2" />
+                    Adicionar Novo Endereço
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {/* Seção de Pagamento */}
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <CreditCard className="h-5 w-5 text-orange-500" />
+                Forma de Pagamento
+              </h3>
+              <div className="space-y-3">
               {[
                 { 
                   id: 'credit_card', 
@@ -773,9 +975,11 @@ const CustomerDashboard = () => {
                   </button>
                 );
               })}
+              </div>
             </div>
             
-            <div className="mt-8 pt-6 border-t border-gray-200">
+            {/* Total e Botões */}
+            <div className="pt-6 border-t border-gray-200">
               <div className="flex items-center justify-between mb-6">
                 <span className="text-lg font-semibold text-gray-700">Total</span>
                 <span className="text-3xl font-bold text-orange-600">R$ {(totalMilli/1000).toFixed(2)}</span>
@@ -793,13 +997,211 @@ const CustomerDashboard = () => {
                 </Button>
                 <Button 
                   onClick={finalizeOrder}
-                  disabled={!selectedPaymentMethod}
+                  disabled={!selectedPaymentMethod || !selectedAddress}
                   className="flex-1 rounded-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Confirmar Pedido
                 </Button>
               </div>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Pedidos Ativos */}
+      <Dialog open={isActiveOrdersModalOpen} onOpenChange={setIsActiveOrdersModalOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              <ShoppingBag className="h-6 w-6 text-blue-500" />
+              Meus Pedidos Ativos
+            </DialogTitle>
+          </DialogHeader>
+          <div className="mt-6">
+            {activeOrders.length === 0 ? (
+              <div className="text-center py-12">
+                <ShoppingBag className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                <p className="text-gray-600 font-medium">Você não tem pedidos ativos no momento</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {activeOrders.map((order) => {
+                  const statusColors: Record<string, string> = {
+                    pending: "bg-yellow-100 text-yellow-800",
+                    preparing: "bg-blue-100 text-blue-800",
+                    ready: "bg-purple-100 text-purple-800",
+                    on_way: "bg-green-100 text-green-800",
+                  };
+                  const statusLabels: Record<string, string> = {
+                    pending: "Aguardando Loja",
+                    preparing: "Preparando",
+                    ready: "Pronto",
+                    on_way: "A Caminho",
+                  };
+                  
+                  return (
+                    <Card key={order.id} className="border border-gray-200">
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <h4 className="font-bold text-gray-900">Pedido #{order.id.slice(0, 8).toUpperCase()}</h4>
+                              <Badge className={statusColors[order.status] || "bg-gray-100 text-gray-800"}>
+                                {statusLabels[order.status] || order.status}
+                              </Badge>
+                            </div>
+                            <p className="text-sm text-gray-500 flex items-center gap-1 mb-2">
+                              <Clock className="h-3 w-3" />
+                              {new Date(order.created_at).toLocaleString('pt-BR')}
+                            </p>
+                            {order.payment_method && (
+                              <p className="text-xs text-gray-500 mb-2">
+                                💳 Pagamento: {order.payment_method === 'credit_card' ? 'Cartão de Crédito' : 
+                                            order.payment_method === 'debit_card' ? 'Cartão de Débito' :
+                                            order.payment_method === 'pix' ? 'PIX' :
+                                            order.payment_method === 'cash' ? 'Dinheiro' : order.payment_method}
+                              </p>
+                            )}
+                            {(order.delivery_street || order.delivery_city) && (
+                              <p className="text-xs text-gray-600 mt-2 flex items-center gap-1">
+                                <MapPin className="h-3 w-3 text-green-600" />
+                                {order.delivery_street && <span>{order.delivery_street}</span>}
+                                {order.delivery_city && order.delivery_state && (
+                                  <span>{order.delivery_city}, {order.delivery_state}</span>
+                                )}
+                              </p>
+                            )}
+                            {order.rider_id && (
+                              <div className="mt-3 pt-3 border-t border-green-200 bg-green-50 rounded-lg p-3">
+                                <p className="text-sm font-semibold text-green-700 flex items-center gap-2 mb-2">
+                                  <Bike className="h-4 w-4" />
+                                  Motorista A Caminho
+                                </p>
+                                <p className="text-xs text-green-600">
+                                  Seu pedido está sendo entregue por um de nossos motoristas.
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                          <div className="text-right ml-4">
+                            <span className="text-xl font-bold text-blue-600">R$ {(order.total_milli/1000).toFixed(2)}</span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Histórico de Pedidos */}
+      <Dialog open={isHistoryModalOpen} onOpenChange={setIsHistoryModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              <Clock className="h-6 w-6 text-purple-500" />
+              Histórico de Pedidos
+            </DialogTitle>
+          </DialogHeader>
+          <div className="mt-6">
+            {historyOrders.length === 0 ? (
+              <div className="text-center py-12">
+                <Clock className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                <p className="text-gray-600 font-medium">Você ainda não tem histórico de pedidos</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {historyOrders.map((order: any) => {
+                  const statusColors: Record<string, string> = {
+                    pending: "bg-yellow-100 text-yellow-800",
+                    preparing: "bg-blue-100 text-blue-800",
+                    ready: "bg-purple-100 text-purple-800",
+                    on_way: "bg-green-100 text-green-800",
+                    delivered: "bg-gray-100 text-gray-800",
+                    cancelled: "bg-red-100 text-red-800"
+                  };
+                  const statusLabels: Record<string, string> = {
+                    pending: "Aguardando Loja",
+                    preparing: "Preparando",
+                    ready: "Pronto",
+                    on_way: "A Caminho",
+                    delivered: "Entregue",
+                    cancelled: "Cancelado"
+                  };
+                  
+                  return (
+                    <Card key={order.id} className="border border-gray-200">
+                      <CardContent className="p-5">
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <h4 className="font-bold text-gray-900">Pedido #{order.id.slice(0, 8).toUpperCase()}</h4>
+                              <Badge className={statusColors[order.status] || "bg-gray-100 text-gray-800"}>
+                                {statusLabels[order.status] || order.status}
+                              </Badge>
+                            </div>
+                            <p className="text-sm text-gray-500 flex items-center gap-1 mb-2">
+                              <Clock className="h-3 w-3" />
+                              {new Date(order.created_at).toLocaleString('pt-BR')}
+                            </p>
+                          </div>
+                          <span className="text-2xl font-bold text-purple-600">R$ {(order.total_milli/1000).toFixed(2)}</span>
+                        </div>
+
+                        {/* Produtos do Pedido */}
+                        {order.order_items && Array.isArray(order.order_items) && order.order_items.length > 0 && (
+                          <div className="mb-4 pt-4 border-t border-gray-200">
+                            <h5 className="font-semibold text-gray-700 mb-3">Itens do Pedido</h5>
+                            <div className="space-y-2">
+                              {order.order_items.map((item: any, idx: number) => {
+                                const product = item.products;
+                                return (
+                                  <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                    <div className="flex-1">
+                                      <p className="font-medium text-gray-900">{product?.name || 'Produto'}</p>
+                                      <p className="text-xs text-gray-500">
+                                        {item.qty}x {product?.unit || 'unidade'}
+                                      </p>
+                                    </div>
+                                    <span className="font-semibold text-gray-700">
+                                      R$ {(item.subtotal_milli / 1000).toFixed(2)}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Informações Adicionais */}
+                        <div className="pt-3 border-t border-gray-200 space-y-2">
+                          {order.payment_method && (
+                            <p className="text-xs text-gray-500">
+                              💳 Pagamento: {order.payment_method === 'credit_card' ? 'Cartão de Crédito' : 
+                                            order.payment_method === 'debit_card' ? 'Cartão de Débito' :
+                                            order.payment_method === 'pix' ? 'PIX' :
+                                            order.payment_method === 'cash' ? 'Dinheiro' : order.payment_method}
+                            </p>
+                          )}
+                          {(order.delivery_street || order.delivery_city) && (
+                            <p className="text-xs text-gray-600 flex items-center gap-1">
+                              <MapPin className="h-3 w-3 text-purple-600" />
+                              {order.delivery_street && <span>{order.delivery_street}</span>}
+                              {order.delivery_city && order.delivery_state && (
+                                <span>{order.delivery_city}, {order.delivery_state}</span>
+                              )}
+                            </p>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
