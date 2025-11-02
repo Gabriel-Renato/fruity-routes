@@ -625,6 +625,54 @@ const Auth = () => {
                 />
               </div>
 
+              {/* Botões de Login Rápido para Desenvolvimento */}
+              {isLogin && (
+                <div className="pt-4 border-t space-y-2">
+                  <Label className="text-sm font-medium text-muted-foreground">Login Rápido (QA)</Label>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setEmail("lojaaaaa@gmail.com");
+                        setPassword("123456789");
+                      }}
+                      className="w-full"
+                    >
+                      <Store className="h-3 w-3 mr-2" />
+                      Loja
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setEmail("larilari@gmail.com");
+                        setPassword("123456789");
+                      }}
+                      className="w-full"
+                    >
+                      <User className="h-3 w-3 mr-2" />
+                      Cliente
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setEmail("motor@gmail.com");
+                        setPassword("123456789");
+                      }}
+                      className="w-full"
+                    >
+                      <Bike className="h-3 w-3 mr-2" />
+                      Motorista
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               <Button
                 type="submit"
                 className="w-full bg-gradient-to-r from-primary to-secondary hover:opacity-90"
