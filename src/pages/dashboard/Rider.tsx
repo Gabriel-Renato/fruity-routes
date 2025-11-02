@@ -205,7 +205,10 @@ const RiderDashboard = () => {
         {/* Informações do Perfil e CNH */}
         <div className="grid md:grid-cols-3 gap-6 mb-6">
           {/* Card de Perfil */}
-          <Card className="bg-white border border-gray-200 shadow-md">
+          <Card 
+            className="bg-white border border-gray-200 shadow-md cursor-pointer hover:shadow-lg transition-all duration-300"
+            onClick={() => navigate("/profile")}
+          >
             <CardHeader className="pb-4">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-400 to-purple-600 flex items-center justify-center">

@@ -239,14 +239,18 @@ const CustomerDashboard = () => {
         {/* Cards de estatísticas melhorados */}
         <div className="grid md:grid-cols-4 gap-4 mb-6">
           {[
-            { icon: ShoppingBag, label: "Pedidos Ativos", value: activeOrdersCount.toString(), color: "bg-blue-500", textColor: "text-blue-600" },
-            { icon: Clock, label: "Histórico", value: recentOrders.length.toString(), color: "bg-purple-500", textColor: "text-purple-600" },
-            { icon: MapPin, label: "Endereços", value: "1", color: "bg-green-500", textColor: "text-green-600" },
-            { icon: User, label: "Perfil", value: profile?.city ? "✓" : "!", color: "bg-orange-500", textColor: "text-orange-600" },
+            { icon: ShoppingBag, label: "Pedidos Ativos", value: activeOrdersCount.toString(), color: "bg-blue-500", textColor: "text-blue-600", onClick: undefined },
+            { icon: Clock, label: "Histórico", value: recentOrders.length.toString(), color: "bg-purple-500", textColor: "text-purple-600", onClick: undefined },
+            { icon: MapPin, label: "Endereços", value: "1", color: "bg-green-500", textColor: "text-green-600", onClick: undefined },
+            { icon: User, label: "Perfil", value: profile?.city ? "✓" : "!", color: "bg-orange-500", textColor: "text-orange-600", onClick: () => navigate("/profile") },
           ].map((stat) => {
             const Icon = stat.icon;
             return (
-              <Card key={stat.label} className="hover:shadow-lg transition-all duration-300 border-0 shadow-md">
+              <Card 
+                key={stat.label} 
+                className={`hover:shadow-lg transition-all duration-300 border-0 shadow-md ${stat.onClick ? "cursor-pointer" : ""}`}
+                onClick={stat.onClick}
+              >
                 <CardContent className="p-5">
                   <div className="flex items-center justify-between mb-3">
                     <div className={`w-12 h-12 ${stat.color} rounded-xl flex items-center justify-center`}>

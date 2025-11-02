@@ -1,9 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -167,7 +166,7 @@ const Auth = () => {
 
     try {
       if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({
+        const { data: { user }, error } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
@@ -179,12 +178,16 @@ const Auth = () => {
           description: "Bem-vindo de volta ao StarFruit 🍊",
         });
 
+        // Detectar tipo de usuário automaticamente do perfil
+        const typeFromMeta = (user?.user_metadata as any)?.user_type as string | undefined;
+        const effectiveType = typeFromMeta || "customer";
+
         const dashboardRoutes = {
           customer: "/dashboard/customer",
           store: "/dashboard/store",
           rider: "/dashboard/rider",
         };
-        navigate(dashboardRoutes[userType]);
+        navigate(dashboardRoutes[effectiveType as keyof typeof dashboardRoutes]);
       } else {
         // Criar usuário
         const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -283,30 +286,6 @@ const Auth = () => {
     }
   };
 
-  const userTypes = [
-    {
-      type: "customer" as UserType,
-      icon: User,
-      title: "Cliente",
-      description: "Peça frutas frescas",
-      gradient: "from-primary to-accent",
-    },
-    {
-      type: "store" as UserType,
-      icon: Store,
-      title: "Loja",
-      description: "Venda seus produtos",
-      gradient: "from-secondary to-accent",
-    },
-    {
-      type: "rider" as UserType,
-      icon: Bike,
-      title: "Motoqueiro",
-      description: "Faça entregas",
-      gradient: "from-accent to-primary",
-    },
-  ];
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted to-background flex items-center justify-center p-4">
       <div className="w-full max-w-2xl">
@@ -319,33 +298,6 @@ const Auth = () => {
           </p>
         </div>
 
-        {/* Mostrar cards de seleção apenas para cadastro */}
-        {!isLogin && (
-          <div className="grid md:grid-cols-3 gap-4 mb-8">
-            {userTypes.map((item) => {
-              const Icon = item.icon;
-              return (
-                <button
-                  key={item.type}
-                  onClick={() => setUserType(item.type)}
-                  className={`p-6 rounded-2xl border-2 transition-all hover:scale-105 ${
-                    userType === item.type
-                      ? "border-primary shadow-[var(--shadow-primary)]"
-                      : "border-border hover:border-primary/50"
-                  }`}
-                >
-                  <div
-                    className={`w-16 h-16 rounded-full bg-gradient-to-br ${item.gradient} flex items-center justify-center mx-auto mb-4`}
-                  >
-                    <Icon className="w-8 h-8 text-white" />
-                  </div>
-                  <h3 className="font-bold text-lg mb-2">{item.title}</h3>
-                  <p className="text-sm text-muted-foreground">{item.description}</p>
-                </button>
-              );
-            })}
-          </div>
-        )}
 
         <Card className="shadow-[var(--shadow-primary)]">
           <CardHeader>
@@ -372,6 +324,40 @@ const Auth = () => {
                       onChange={(e) => setName(e.target.value)}
                       required={!isLogin}
                     />
+                  </div>
+
+                  {/* Dropdown de tipo de usuário apenas para cadastro */}
+                  <div className="space-y-2">
+                    <Label htmlFor="userType">Tipo de conta</Label>
+                    <Select value={userType} onValueChange={(value) => setUserType(value as UserType)}>
+                      <SelectTrigger id="userType">
+                        <SelectValue>
+                          {userType === "customer" && "👤 Cliente"}
+                          {userType === "store" && "🏪 Loja"}
+                          {userType === "rider" && "🏍️ Motoqueiro"}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="customer">
+                          <div className="flex items-center gap-2">
+                            <User className="h-4 w-4" />
+                            <span>Cliente</span>
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="store">
+                          <div className="flex items-center gap-2">
+                            <Store className="h-4 w-4" />
+                            <span>Loja</span>
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="rider">
+                          <div className="flex items-center gap-2">
+                            <Bike className="h-4 w-4" />
+                            <span>Motoqueiro</span>
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   {/* Seção de Endereço */}
@@ -638,42 +624,6 @@ const Auth = () => {
                   minLength={6}
                 />
               </div>
-
-              {/* Dropdown de tipo de usuário apenas para login */}
-              {isLogin && (
-                <div className="space-y-2">
-                  <Label htmlFor="userType">Tipo de conta</Label>
-                  <Select value={userType} onValueChange={(value) => setUserType(value as UserType)}>
-                    <SelectTrigger id="userType">
-                      <SelectValue>
-                        {userType === "customer" && "👤 Cliente"}
-                        {userType === "store" && "🏪 Loja"}
-                        {userType === "rider" && "🏍️ Motoqueiro"}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="customer">
-                        <div className="flex items-center gap-2">
-                          <User className="h-4 w-4" />
-                          <span>Cliente</span>
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="store">
-                        <div className="flex items-center gap-2">
-                          <Store className="h-4 w-4" />
-                          <span>Loja</span>
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="rider">
-                        <div className="flex items-center gap-2">
-                          <Bike className="h-4 w-4" />
-                          <span>Motoqueiro</span>
-                        </div>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
 
               <Button
                 type="submit"
