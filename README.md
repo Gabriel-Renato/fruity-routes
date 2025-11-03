@@ -1,73 +1,92 @@
-# Welcome to your Lovable project
+# 🍊 StarFruit - Plataforma de Delivery de Frutas
 
-## Project info
+Sistema completo de delivery de frutas e produtos naturais com perfil de Cliente, Loja e Motoqueiro.
 
-**URL**: https://lovable.dev/projects/b9746102-464d-41e9-92b0-b38beea14beb
+## 🚀 Tecnologias
 
-## How can I edit this code?
+- **Frontend**: React + TypeScript + Vite
+- **UI**: shadcn-ui + Tailwind CSS
+- **Backend**: Supabase (Auth, Database, Storage)
+- **Roteamento**: React Router
 
-There are several ways of editing your application.
+## 📋 Funcionalidades
 
-**Use Lovable**
+### 👤 Cliente
+- Dashboard com lojas próximas
+- Carrinho de compras
+- Pedidos ativos com rastreamento
+- Histórico completo de pedidos
+- Gerenciamento de endereços
+- Perfil editável
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/b9746102-464d-41e9-92b0-b38beea14beb) and start prompting.
+### 🏪 Loja
+- Dashboard de gestão
+- Cadastro e edição de produtos com fotos
+- Controle de pedidos
+- Atribuição de motorista
+- Estatísticas de vendas
 
-Changes made via Lovable will be committed automatically to this repo.
+### 🏍️ Motoqueiro
+- Entregas disponíveis
+- Histórico de entregas
+- Atualização de status
+- Estatísticas e ganhos
 
-**Use your preferred IDE**
+## 🛠️ Instalação
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+```bash
+# Instalar dependências
+npm install
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+# Configurar variáveis de ambiente
+# Criar arquivo .env.local com:
+# VITE_SUPABASE_URL=your_supabase_url
+# VITE_SUPABASE_ANON_KEY=your_supabase_key
 
-Follow these steps:
+# Executar migrations do Supabase
+# Acesse Supabase Dashboard > SQL Editor e execute os arquivos em:
+# supabase/migrations/
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Iniciar servidor de desenvolvimento
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+## 🔐 Contas de Teste (QA)
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+| Perfil | Email | Senha |
+|--------|-------|-------|
+| Loja | lojaaaaa@gmail.com | 123456789 |
+| Cliente | larilari@gmail.com | 123456789 |
+| Motorista | motor@gmail.com | 123456789 |
 
-**Use GitHub Codespaces**
+## 📁 Estrutura do Projeto
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+```
+src/
+├── pages/
+│   ├── dashboard/       # Dashboards por perfil
+│   ├── store/           # Gestão de produtos
+│   ├── profile/         # Perfil do usuário
+│   └── Auth.tsx         # Login e cadastro
+├── components/ui/       # Componentes shadcn-ui
+├── context/            # Contextos (Cart, etc)
+└── integrations/       # Configuração Supabase
 
-## What technologies are used for this project?
+supabase/migrations/    # Migrations SQL
+```
 
-This project is built with:
+## 📝 Migrations Necessárias
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+Execute as migrations na ordem:
+1. `20251029153544_845de7e5-b090-48cb-8ef1-3b378df25a46.sql`
+2. `20251030120000_create_products.sql`
+3. `20251030123000_full_schema.sql`
+4. `20251101000000_fix_trigger_error_handling.sql`
+5. `20251102000000_add_city_fields.sql`
+6. `20251102010000_add_rider_fields.sql`
+7. `20251103000000_add_product_fields.sql`
+8. `20251103010000_add_delivery_address_to_orders.sql`
 
-## How can I deploy this project?
+## 🎨 Licença
 
-Simply open [Lovable](https://lovable.dev/projects/b9746102-464d-41e9-92b0-b38beea14beb) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+MIT
