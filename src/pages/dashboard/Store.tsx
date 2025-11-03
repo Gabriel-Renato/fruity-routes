@@ -37,13 +37,78 @@ const StoreDashboard = () => {
           .order("created_at", { ascending: false });
         setProducts(productsData || []);
 
-        // Carregar pedidos
-        const { data: ordersData } = await supabase
+        // Carregar pedidos (sem campos novos para evitar erro 400 até migration ser aplicada)
+        const { data: ordersData, error: ordersError } = await supabase
           .from("orders")
           .select("id, created_at, total_milli, status, customer_id, payment_method, rider_id, delivery_street, delivery_city, delivery_state, delivery_zip, delivery_complement")
           .eq("store_id", user.id)
           .order("created_at", { ascending: false });
-        setOrders(ordersData || []);
+        
+        if (ordersError) {
+          console.error('Erro ao carregar pedidos:', ordersError);
+        } else {
+          // Adicionar rider_status como null se não existir
+          setOrders((ordersData || []).map((o: any) => ({ ...o, rider_status: o.rider_status || null })));
+        }
+        
+        // Configurar listener para mudanças nos pedidos
+        const ordersSubscription = supabase
+          .channel('store-orders')
+          .on(
+            'postgres_changes',
+            {
+              event: 'UPDATE',
+              schema: 'public',
+              table: 'orders',
+              filter: `store_id=eq.${user.id}`
+            },
+            (payload) => {
+              const order = payload.new as any;
+              const oldOrder = payload.old as any;
+              
+              // Se o motorista aceitou a entrega (going_to_store)
+              if (order.rider_status === "going_to_store" && oldOrder?.rider_status !== "going_to_store") {
+                toast({
+                  title: "🚚 Motorista a caminho da loja!",
+                  description: `Um motorista aceitou o pedido #${order.id.slice(0, 8).toUpperCase()} e está vindo até a loja.`,
+                });
+                
+                // Recarregar pedidos
+                supabase
+                  .from("orders")
+                  .select("id, created_at, total_milli, status, customer_id, payment_method, rider_id, delivery_street, delivery_city, delivery_state, delivery_zip, delivery_complement")
+                  .eq("store_id", user.id)
+                  .order("created_at", { ascending: false })
+                  .then(({ data }) => {
+                    if (data) {
+                      setOrders(data.map((o: any) => ({ ...o, rider_status: o.rider_status || null })));
+                    }
+                  });
+              }
+              
+              // Se o motorista chegou na loja
+              if (order.rider_status === "at_store" && oldOrder?.rider_status !== "at_store") {
+                toast({
+                  title: "📍 Motorista chegou na loja!",
+                  description: `O motorista está aguardando o pedido #${order.id.slice(0, 8).toUpperCase()} ficar pronto.`,
+                });
+              }
+              
+              // Se o motorista está indo até o cliente
+              if (order.rider_status === "going_to_customer" && oldOrder?.rider_status !== "going_to_customer") {
+                toast({
+                  title: "🚚 Motorista saiu para entrega!",
+                  description: `O motorista pegou o pedido #${order.id.slice(0, 8).toUpperCase()} e está indo até o cliente.`,
+                });
+              }
+            }
+          )
+          .subscribe();
+        
+        // Limpar subscription ao desmontar
+        return () => {
+          ordersSubscription.unsubscribe();
+        };
 
         // Calcular estatísticas
         const today = new Date();
@@ -72,10 +137,15 @@ const StoreDashboard = () => {
       const { data: ridersData } = await supabase
         .from("profiles")
         .select("id, full_name")
-        .eq("user_type", "rider");
+        .eq("user_type", "rider")
+        .eq("is_available", true);
       setAvailableRiders(ridersData || []);
     };
     loadRiders();
+    
+    // Recarregar motoristas a cada 30 segundos
+    const interval = setInterval(loadRiders, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleDeleteProduct = async (productId: string) => {
@@ -102,23 +172,52 @@ const StoreDashboard = () => {
   };
 
   const handleUpdateOrderStatus = async (orderId: string, newStatus: string) => {
-    const { error } = await supabase
-      .from("orders")
-      .update({ status: newStatus })
-      .eq("id", orderId);
+    const order = orders.find(o => o.id === orderId);
+    
+      const { data, error } = await supabase
+        .from("orders")
+        .update({ status: newStatus })
+        .eq("id", orderId)
+        .select();
     
     if (error) {
+      console.error('Erro ao atualizar status:', error);
       toast({
         title: "Erro",
-        description: "Não foi possível atualizar o status",
+        description: error.message || "Não foi possível atualizar o status",
         variant: "destructive",
       });
     } else {
-      setOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
-      toast({
-        title: "Status atualizado",
-        description: "Status do pedido atualizado com sucesso",
-      });
+      // Recarregar pedidos do banco para garantir sincronização
+      const { data: updatedOrders, error: reloadError } = await supabase
+        .from("orders")
+        .select("id, created_at, total_milli, status, customer_id, payment_method, rider_id, delivery_street, delivery_city, delivery_state, delivery_zip, delivery_complement")
+        .eq("store_id", user?.id)
+        .order("created_at", { ascending: false });
+      
+      if (reloadError) {
+        console.error('Erro ao recarregar pedidos:', reloadError);
+        // Fallback: atualizar localmente se não conseguir recarregar
+        setOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+      } else if (updatedOrders) {
+        setOrders(updatedOrders.map((o: any) => ({ ...o, rider_status: o.rider_status || null })));
+      } else {
+        // Fallback: atualizar localmente se não conseguir recarregar
+        setOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+      }
+      
+      // Se o pedido ficou pronto, notificar o cliente
+      if (newStatus === "ready" && order?.customer_id) {
+        toast({
+          title: "Status atualizado",
+          description: "Pedido pronto! O cliente foi notificado.",
+        });
+      } else {
+        toast({
+          title: "Status atualizado",
+          description: "Status do pedido atualizado com sucesso",
+        });
+      }
     }
   };
 

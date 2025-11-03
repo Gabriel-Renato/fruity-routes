@@ -134,8 +134,93 @@ const CustomerDashboard = () => {
     
     if (user) {
       loadRecentOrders();
+      
+      // Configurar listener para mudanças de status dos pedidos
+      const ordersSubscription = supabase
+        .channel('customer-orders')
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'orders',
+            filter: `customer_id=eq.${user.id}`
+          },
+          (payload) => {
+            const order = payload.new as any;
+            const oldOrder = payload.old as any;
+            
+            // Se o status mudou para "ready", notificar o cliente
+            if (order.status === "ready" && oldOrder?.status !== "ready") {
+              toast({
+                title: "🎉 Pedido Pronto!",
+                description: "Seu pedido está pronto para retirada! Um motorista será atribuído em breve.",
+              });
+              
+              // Recarregar pedidos
+              loadRecentOrders();
+            }
+            
+            // Se o motorista aceitou a entrega (going_to_store)
+            if ((order as any).rider_status === "going_to_store" && (oldOrder as any)?.rider_status !== "going_to_store") {
+              toast({
+                title: "🚚 Motorista a caminho da loja!",
+                description: "Um motorista aceitou seu pedido e está indo até a loja para retirar.",
+              });
+              
+              loadRecentOrders();
+            }
+            
+            // Se o motorista chegou na loja
+            if ((order as any).rider_status === "at_store" && (oldOrder as any)?.rider_status !== "at_store") {
+              toast({
+                title: "📍 Motorista chegou na loja!",
+                description: "O motorista chegou na loja e está aguardando seu pedido ficar pronto.",
+              });
+              
+              loadRecentOrders();
+            }
+            
+            // Se o motorista está indo até o cliente
+            if ((order as any).rider_status === "going_to_customer" && (oldOrder as any)?.rider_status !== "going_to_customer") {
+              toast({
+                title: "🚚 Pedido a Caminho!",
+                description: "O motorista pegou seu pedido e está indo até você!",
+              });
+              
+              loadRecentOrders();
+            }
+            
+            // Se o status mudou para "on_way", notificar que está a caminho (fallback para pedidos antigos)
+            if (order.status === "on_way" && oldOrder?.status !== "on_way" && !(order as any).rider_status) {
+              toast({
+                title: "🚚 Pedido a Caminho!",
+                description: "Seu pedido saiu para entrega!",
+              });
+              
+              loadRecentOrders();
+            }
+            
+            // Se o status mudou para "delivered", notificar que foi entregue
+            if (order.status === "delivered" && oldOrder?.status !== "delivered") {
+              toast({
+                title: "✅ Pedido Entregue!",
+                description: "Seu pedido foi entregue com sucesso! Obrigado pela preferência.",
+              });
+              
+              // Recarregar pedidos
+              loadRecentOrders();
+            }
+          }
+        )
+        .subscribe();
+      
+      // Limpar subscription ao desmontar
+      return () => {
+        ordersSubscription.unsubscribe();
+      };
     }
-  }, [user]);
+  }, [user, toast]);
 
   useEffect(() => {
     const loadActiveOrders = async () => {
@@ -153,6 +238,10 @@ const CustomerDashboard = () => {
     
     if (user && isActiveOrdersModalOpen) {
       loadActiveOrders();
+      
+      // Recarregar a cada 10 segundos quando o modal estiver aberto
+      const interval = setInterval(loadActiveOrders, 10000);
+      return () => clearInterval(interval);
     }
   }, [user, isActiveOrdersModalOpen]);
 

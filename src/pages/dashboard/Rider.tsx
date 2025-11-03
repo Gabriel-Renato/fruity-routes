@@ -4,14 +4,23 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Bike, MapPin, Clock, DollarSign, User, Award, Calendar, FileText, Phone, CarFront, TrendingUp, CheckCircle, AlertCircle } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Bike, MapPin, Clock, DollarSign, User, Award, Calendar, FileText, Phone, CarFront, TrendingUp, CheckCircle, AlertCircle, Store, Navigation } from "lucide-react";
+import DeliveryMap from "@/components/DeliveryMap";
+import { useToast } from "@/components/ui/use-toast";
 
 const RiderDashboard = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
+  const [isAvailable, setIsAvailable] = useState<boolean>(false);
   const [availableDeliveries, setAvailableDeliveries] = useState<any[]>([]);
   const [deliveryHistory, setDeliveryHistory] = useState<any[]>([]);
+  const [selectedDelivery, setSelectedDelivery] = useState<any>(null);
+  const [isMapModalOpen, setIsMapModalOpen] = useState(false);
+  const [storeInfo, setStoreInfo] = useState<any>(null);
+  const [customerInfo, setCustomerInfo] = useState<any>(null);
   const [stats, setStats] = useState({
     deliveriesToday: 0,
     onRoute: 0,
@@ -28,13 +37,21 @@ const RiderDashboard = () => {
         navigate("/auth");
       } else {
         setUser(user);
-        // Carregar perfil com informações de CNH
-        const { data: profileData } = await supabase
+        // Carregar perfil com informações de CNH e disponibilidade
+        const { data: profileData, error: profileError } = await supabase
           .from("profiles")
-          .select("full_name, phone, cnh_number, cnh_category, cnh_expiry, vehicle_type, vehicle_plate, city, state")
+          .select("full_name, phone, cnh_number, cnh_category, cnh_expiry, vehicle_type, vehicle_plate")
           .eq("id", user.id)
           .single();
-        setProfile(profileData);
+        
+        if (profileError) {
+          console.error('Erro ao carregar perfil:', profileError);
+        }
+        if (profileData) {
+          setProfile(profileData);
+          // is_available será false por padrão até migration ser aplicada
+          setIsAvailable(false);
+        }
       }
     };
 
@@ -45,42 +62,91 @@ const RiderDashboard = () => {
   useEffect(() => {
     const loadAvailableDeliveries = async () => {
       if (!user) return;
-      const { data } = await supabase
-        .from("orders")
-        .select("id, customer_id, store_id, total_milli, created_at, status, payment_method, delivery_street, delivery_city, delivery_state, delivery_zip, delivery_complement")
-        .eq("rider_id", user.id)
-        .in("status", ["ready", "on_way"])
-        .order("created_at", { ascending: true })
-        .limit(10);
-      setAvailableDeliveries(data || []);
+      
+      // Buscar sem campos novos primeiro (até migration ser aplicada)
+      try {
+        const { data, error } = await supabase
+          .from("orders")
+          .select("id, customer_id, store_id, total_milli, created_at, status, payment_method, delivery_street, delivery_city, delivery_state, delivery_zip, delivery_complement")
+          .eq("rider_id", user.id)
+          .in("status", ["ready", "on_way"])
+          .order("created_at", { ascending: true })
+          .limit(10);
+        
+        if (error) {
+          console.error('Erro ao carregar entregas:', error);
+          setAvailableDeliveries([]);
+        } else {
+          // Adicionar campos opcionais como null se não existirem
+          setAvailableDeliveries((data || []).map((d: any) => ({
+            ...d,
+            rider_status: d.rider_status || null,
+            store_lat: d.store_lat || null,
+            store_lng: d.store_lng || null,
+            delivery_lat: d.delivery_lat || null,
+            delivery_lng: d.delivery_lng || null,
+          })));
+        }
+      } catch (err) {
+        console.error('Erro ao carregar entregas:', err);
+        setAvailableDeliveries([]);
+      }
     };
     loadAvailableDeliveries();
+    
+    // Recarregar a cada 10 segundos
+    const interval = setInterval(loadAvailableDeliveries, 10000);
+    return () => clearInterval(interval);
   }, [user]);
 
   // Carregar histórico de entregas
   useEffect(() => {
     const loadDeliveryHistory = async () => {
       if (!user) return;
-      const { data } = await supabase
-        .from("orders")
-        .select("id, customer_id, store_id, total_milli, created_at, status")
-        .in("status", ["delivered", "on_way"])
-        .order("created_at", { ascending: false })
-        .limit(10);
-      setDeliveryHistory(data || []);
       
-      // Calcular estatísticas
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayDeliveries = (data || []).filter(d => new Date(d.created_at) >= today);
-      setStats({
-        deliveriesToday: todayDeliveries.length,
-        onRoute: (data || []).filter(d => d.status === "on_way").length,
-        avgTime: 25, // minutos (mockado)
-        earningsToday: todayDeliveries.reduce((sum, d) => sum + (d.total_milli || 0) * 0.1, 0) / 1000, // 10% do pedido
-        totalEarnings: (data || []).reduce((sum, d) => sum + (d.total_milli || 0) * 0.1, 0) / 1000,
-        rating: 4.9
-      });
+      try {
+        // Tentar buscar com campos de endereço (se existirem)
+        const { data, error } = await supabase
+          .from("orders")
+          .select("id, customer_id, store_id, total_milli, created_at, status, rider_id")
+          .eq("rider_id", user.id)
+          .in("status", ["delivered", "on_way"])
+          .order("created_at", { ascending: false })
+          .limit(10);
+        
+        if (error) {
+          console.error('Erro ao carregar histórico:', error);
+          setDeliveryHistory([]);
+          return;
+        }
+        
+        // Adicionar campos opcionais como null se não existirem
+        const deliveriesWithDefaults = (data || []).map((d: any) => ({
+          ...d,
+          delivery_street: d.delivery_street || null,
+          delivery_city: d.delivery_city || null,
+          delivery_state: d.delivery_state || null,
+          rider_status: d.rider_status || null,
+        }));
+        
+        setDeliveryHistory(deliveriesWithDefaults);
+        
+        // Calcular estatísticas
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayDeliveries = deliveriesWithDefaults.filter((d: any) => new Date(d.created_at) >= today);
+        setStats({
+          deliveriesToday: todayDeliveries.length,
+          onRoute: deliveriesWithDefaults.filter((d: any) => d.status === "on_way").length,
+          avgTime: 25, // minutos (mockado)
+          earningsToday: todayDeliveries.reduce((sum: number, d: any) => sum + (d.total_milli || 0) * 0.1, 0) / 1000, // 10% do pedido
+          totalEarnings: deliveriesWithDefaults.reduce((sum: number, d: any) => sum + (d.total_milli || 0) * 0.1, 0) / 1000,
+          rating: 4.9
+        });
+      } catch (err) {
+        console.error('Erro ao carregar histórico de entregas:', err);
+        setDeliveryHistory([]);
+      }
     };
     if (user) {
       loadDeliveryHistory();
@@ -92,23 +158,389 @@ const RiderDashboard = () => {
     navigate("/");
   };
 
+  const handleToggleAvailability = async () => {
+    if (!user) return;
+    
+    const newAvailability = !isAvailable;
+    
+    // Tentar atualizar is_available (pode falhar se campo não existir ainda)
+    const { error } = await supabase
+      .from("profiles")
+      .update({ is_available: newAvailability })
+      .eq("id", user.id);
+    
+    if (error) {
+      // Se o erro for porque o campo não existe, apenas atualizar estado local
+      if (error.message?.includes("column") && error.message?.includes("does not exist")) {
+        console.log('Campo is_available ainda não existe no banco. Usando apenas estado local.');
+        setIsAvailable(newAvailability);
+        setProfile({ ...profile, is_available: newAvailability });
+      } else {
+        console.error('Erro ao atualizar disponibilidade:', error);
+        toast({
+          title: "Aviso",
+          description: "Campo de disponibilidade ainda não disponível. A funcionalidade estará completa após aplicar as migrations.",
+          variant: "default",
+        });
+        // Mesmo assim atualizar localmente para não bloquear o usuário
+        setIsAvailable(newAvailability);
+      }
+    } else {
+      setIsAvailable(newAvailability);
+      setProfile({ ...profile, is_available: newAvailability });
+      
+      // Recarregar entregas disponíveis quando ficar disponível
+      if (newAvailability && user) {
+        try {
+          const { data } = await supabase
+            .from("orders")
+            .select("id, customer_id, store_id, total_milli, created_at, status, payment_method, delivery_street, delivery_city, delivery_state, delivery_zip, delivery_complement")
+            .eq("rider_id", user.id)
+            .in("status", ["ready", "on_way"])
+            .order("created_at", { ascending: true })
+            .limit(10);
+          setAvailableDeliveries((data || []).map((d: any) => ({
+            ...d,
+            rider_status: d.rider_status || null,
+            store_lat: d.store_lat || null,
+            store_lng: d.store_lng || null,
+            delivery_lat: d.delivery_lat || null,
+            delivery_lng: d.delivery_lng || null,
+          })));
+        } catch (err) {
+          console.error('Erro ao recarregar entregas:', err);
+        }
+      }
+    }
+  };
+
+  // Função auxiliar para obter coordenadas de um endereço
+  const geocodeAddress = async (address: string): Promise<{ lat: number; lng: number } | null> => {
+    try {
+      // Usar API de geocodificação do OpenStreetMap (Nominatim)
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`
+      );
+      const data = await response.json();
+      if (data && data.length > 0) {
+        return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+      }
+    } catch (error) {
+      console.error('Erro ao geocodificar endereço:', error);
+    }
+    return null;
+  };
+
+  // Carregar informações completas do pedido para o mapa
+  const loadDeliveryDetails = async (delivery: any) => {
+    // Limpar informações anteriores
+    setStoreInfo(null);
+    setCustomerInfo(null);
+    
+    const riderStatus = delivery.rider_status || (delivery.status === "on_way" ? null : null);
+    const isGoingToStore = riderStatus === "going_to_store" || riderStatus === "at_store" || (!riderStatus && delivery.status === "on_way");
+    const isGoingToCustomer = riderStatus === "going_to_customer";
+    
+    // Carregar informações da loja (apenas se estiver indo para a loja ou ainda não definiu status)
+    if (isGoingToStore && delivery.store_id) {
+      try {
+        const { data: storeData, error } = await supabase
+          .from("stores")
+          .select("name")
+          .eq("owner_id", delivery.store_id)
+          .maybeSingle();
+        
+        if (!error && storeData) {
+          // Geocodificar usando cidade do endereço de entrega
+          const address = `${delivery.delivery_city || 'Brasil'}, ${delivery.delivery_state || ''}`;
+          const coords = await geocodeAddress(address);
+          
+          setStoreInfo({
+            ...storeData,
+            lat: coords?.lat || null,
+            lng: coords?.lng || null,
+            city: delivery.delivery_city || null,
+            state: delivery.delivery_state || null,
+          });
+        } else if (error && error.code !== 'PGRST116') {
+          // PGRST116 significa "não encontrou", o que é ok, mas outros erros devem ser logados
+          console.error('Erro ao buscar loja:', error);
+        }
+      } catch (err) {
+        console.error('Erro ao carregar dados da loja:', err);
+      }
+    }
+
+    // Carregar informações do cliente (apenas se estiver indo para o cliente)
+    if (isGoingToCustomer && delivery.customer_id) {
+      try {
+        const { data: customerData, error } = await supabase
+          .from("profiles")
+          .select("full_name")
+          .eq("id", delivery.customer_id)
+          .maybeSingle();
+        
+        if (!error && customerData) {
+          // Geocodificar usando endereço de entrega
+          const address = `${delivery.delivery_street || ''}, ${delivery.delivery_city || ''}, ${delivery.delivery_state || ''}`;
+          const coords = await geocodeAddress(address);
+          
+          setCustomerInfo({
+            ...customerData,
+            street: delivery.delivery_street,
+            city: delivery.delivery_city,
+            state: delivery.delivery_state,
+            lat: coords?.lat || null,
+            lng: coords?.lng || null,
+          });
+        } else if (error && error.code !== 'PGRST116') {
+          console.error('Erro ao buscar cliente:', error);
+        }
+      } catch (err) {
+        console.error('Erro ao carregar dados do cliente:', err);
+      }
+    }
+    
+    // Se está no histórico e é "on_way" (sem rider_status), carregar ambos para mostrar a rota completa
+    if (!riderStatus && delivery.status === "on_way") {
+      // Carregar loja
+      if (delivery.store_id) {
+        try {
+          const { data: storeData, error } = await supabase
+            .from("stores")
+            .select("name")
+            .eq("owner_id", delivery.store_id)
+            .maybeSingle();
+          
+          if (!error && storeData) {
+            const address = `${delivery.delivery_city || 'Brasil'}, ${delivery.delivery_state || ''}`;
+            const coords = await geocodeAddress(address);
+            
+            setStoreInfo({
+              ...storeData,
+              lat: coords?.lat || null,
+              lng: coords?.lng || null,
+              city: delivery.delivery_city || null,
+              state: delivery.delivery_state || null,
+            });
+          }
+        } catch (err) {
+          console.error('Erro ao carregar dados da loja:', err);
+        }
+      }
+      
+      // Carregar cliente também para histórico
+      if (delivery.customer_id) {
+        try {
+          const { data: customerData, error } = await supabase
+            .from("profiles")
+            .select("full_name")
+            .eq("id", delivery.customer_id)
+            .maybeSingle();
+          
+          if (!error && customerData) {
+            const address = `${delivery.delivery_street || ''}, ${delivery.delivery_city || ''}, ${delivery.delivery_state || ''}`;
+            const coords = await geocodeAddress(address);
+            
+            setCustomerInfo({
+              ...customerData,
+              street: delivery.delivery_street,
+              city: delivery.delivery_city,
+              state: delivery.delivery_state,
+              lat: coords?.lat || null,
+              lng: coords?.lng || null,
+            });
+          }
+        } catch (err) {
+          console.error('Erro ao carregar dados do cliente:', err);
+        }
+      }
+    }
+  };
+
   const handleAcceptDelivery = async (orderId: string) => {
     if (!user) return;
     
+    const delivery = availableDeliveries.find(d => d.id === orderId);
+    
+    // Obter coordenadas da loja se necessário
+    let storeLat = delivery?.store_lat;
+    let storeLng = delivery?.store_lng;
+    
+    if (!storeLat || !storeLng) {
+      // Geocodificar usando cidade do endereço de entrega
+      try {
+        const address = `${delivery?.delivery_city || 'Brasil'}, ${delivery?.delivery_state || ''}`;
+        const coords = await geocodeAddress(address);
+        if (coords) {
+          storeLat = coords.lat;
+          storeLng = coords.lng;
+          // Não salvar no banco ainda (campos não existem até migration)
+        }
+      } catch (err) {
+        console.error('Erro ao geocodificar endereço da loja:', err);
+      }
+    }
+
+    // Obter coordenadas do cliente se necessário
+    let deliveryLat = delivery?.delivery_lat;
+    let deliveryLng = delivery?.delivery_lng;
+    
+    if (!deliveryLat || !deliveryLng) {
+      const address = `${delivery?.delivery_street || ''}, ${delivery?.delivery_city || ''}, ${delivery?.delivery_state || ''}`;
+      const coords = await geocodeAddress(address);
+      if (coords) {
+        deliveryLat = coords.lat;
+        deliveryLng = coords.lng;
+      }
+    }
+
+    // Preparar dados de atualização (somente campos que existem)
+    const updateData: any = {
+      status: "on_way"
+    };
+    
+    // Tentar atualizar campos novos se existirem (após migration)
+    // Por enquanto, só atualizar status para não causar erro 400
+    // Quando a migration for aplicada, esses campos estarão disponíveis
+    
     const { error } = await supabase
       .from("orders")
-      .update({ status: "on_way" })
+      .update(updateData)
       .eq("id", orderId)
       .eq("rider_id", user.id);
     
     if (error) {
       console.error('Erro ao aceitar entrega:', error);
-      alert('Erro ao aceitar entrega. Tente novamente.');
+      toast({
+        title: "Erro",
+        description: error.message || "Não foi possível aceitar a entrega",
+        variant: "destructive",
+      });
     } else {
-      setAvailableDeliveries(availableDeliveries.map(d => 
-        d.id === orderId ? { ...d, status: "on_way" } : d
-      ));
-      alert('Entrega aceita com sucesso!');
+      // Notificar cliente e loja via toast (a notificação real será via Realtime)
+      toast({
+        title: "✅ Entrega Aceita!",
+        description: "Você está indo até a loja. Cliente e loja foram notificados.",
+      });
+      
+      // Recarregar entregas
+      const { data, error: reloadError } = await supabase
+        .from("orders")
+        .select("id, customer_id, store_id, total_milli, created_at, status, payment_method, delivery_street, delivery_city, delivery_state, delivery_zip, delivery_complement")
+        .eq("rider_id", user.id)
+        .in("status", ["ready", "on_way"])
+        .order("created_at", { ascending: true })
+        .limit(10);
+      
+      if (!reloadError && data) {
+        setAvailableDeliveries(data.map((d: any) => ({
+          ...d,
+          rider_status: d.rider_status || null,
+          store_lat: d.store_lat || null,
+          store_lng: d.store_lng || null,
+          delivery_lat: d.delivery_lat || null,
+          delivery_lng: d.delivery_lng || null,
+        })));
+      }
+    }
+  };
+
+  const handleArriveAtStore = async (orderId: string) => {
+    if (!user) return;
+    
+    // Atualizar apenas status (rider_status será usado após migration)
+    const updateData: any = {
+      status: "on_way"
+    };
+    
+    const { error } = await supabase
+      .from("orders")
+      .update(updateData)
+      .eq("id", orderId)
+      .eq("rider_id", user.id);
+    
+    if (error) {
+      console.error('Erro ao atualizar status:', error);
+      toast({
+        title: "Erro",
+        description: error.message || "Não foi possível atualizar o status",
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "📍 Você chegou na loja!",
+        description: "Aguardando o pedido ficar pronto...",
+      });
+      
+      // Recarregar entregas
+      const { data, error: reloadError } = await supabase
+        .from("orders")
+        .select("id, customer_id, store_id, total_milli, created_at, status, payment_method, delivery_street, delivery_city, delivery_state, delivery_zip, delivery_complement")
+        .eq("rider_id", user.id)
+        .in("status", ["ready", "on_way"])
+        .order("created_at", { ascending: true })
+        .limit(10);
+      
+      if (!reloadError && data) {
+        setAvailableDeliveries(data.map((d: any) => ({
+          ...d,
+          rider_status: d.rider_status || null,
+          store_lat: d.store_lat || null,
+          store_lng: d.store_lng || null,
+          delivery_lat: d.delivery_lat || null,
+          delivery_lng: d.delivery_lng || null,
+        })));
+      }
+    }
+  };
+
+  const handleGoingToCustomer = async (orderId: string) => {
+    if (!user) return;
+    
+    // Atualizar apenas status (rider_status será usado após migration)
+    const updateData: any = {
+      status: "on_way"
+    };
+    
+    const { error } = await supabase
+      .from("orders")
+      .update(updateData)
+      .eq("id", orderId)
+      .eq("rider_id", user.id);
+    
+    if (error) {
+      console.error('Erro ao atualizar status:', error);
+      toast({
+        title: "Erro",
+        description: error.message || "Não foi possível atualizar o status",
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "🚚 Indo até o cliente!",
+        description: "Cliente e loja foram notificados que você está a caminho.",
+      });
+      
+      // Recarregar entregas
+      const { data, error: reloadError } = await supabase
+        .from("orders")
+        .select("id, customer_id, store_id, total_milli, created_at, status, payment_method, delivery_street, delivery_city, delivery_state, delivery_zip, delivery_complement")
+        .eq("rider_id", user.id)
+        .in("status", ["ready", "on_way"])
+        .order("created_at", { ascending: true })
+        .limit(10);
+      
+      if (!reloadError && data) {
+        setAvailableDeliveries(data.map((d: any) => ({
+          ...d,
+          rider_status: d.rider_status || null,
+          store_lat: d.store_lat || null,
+          store_lng: d.store_lng || null,
+          delivery_lat: d.delivery_lat || null,
+          delivery_lng: d.delivery_lng || null,
+        })));
+      }
     }
   };
 
@@ -201,6 +633,40 @@ const RiderDashboard = () => {
             );
           })}
         </div>
+
+        {/* Botão de Disponibilidade - Destaque */}
+        <Card className="mb-6 bg-gradient-to-r from-purple-500 to-purple-700 border-0 shadow-lg">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center">
+                  <Bike className="h-8 w-8 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-white mb-1">
+                    {isAvailable ? "Você está disponível para entregas" : "Você está indisponível"}
+                  </h3>
+                  <p className="text-purple-100 text-sm">
+                    {isAvailable 
+                      ? "Motoristas disponíveis podem receber novas entregas"
+                      : "Clique no botão para começar a receber entregas"}
+                  </p>
+                </div>
+              </div>
+              <Button
+                size="lg"
+                onClick={handleToggleAvailability}
+                className={`rounded-full px-8 py-6 text-lg font-bold ${
+                  isAvailable 
+                    ? "bg-red-500 hover:bg-red-600 text-white" 
+                    : "bg-green-500 hover:bg-green-600 text-white"
+                }`}
+              >
+                {isAvailable ? "Finalizar Jornada" : "Iniciar Jornada"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Informações do Perfil e CNH */}
         <div className="grid md:grid-cols-3 gap-6 mb-6">
@@ -395,21 +861,69 @@ const RiderDashboard = () => {
                             R$ {((delivery.total_milli || 0) * 0.1 / 1000).toFixed(2)}
                           </span>
                         </div>
-                        {delivery.status === "ready" ? (
-                          <Button 
-                            className="w-full mt-3 rounded-full bg-green-500 hover:bg-green-600"
-                            onClick={() => handleAcceptDelivery(delivery.id)}
-                          >
-                            Aceitar Entrega
-                          </Button>
-                        ) : (
-                          <Button 
-                            className="w-full mt-3 rounded-full bg-blue-500 hover:bg-blue-600"
-                            onClick={() => handleCompleteDelivery(delivery.id)}
-                          >
-                            Finalizar Entrega
-                          </Button>
-                        )}
+                        <div className="mt-3 space-y-2">
+                          {delivery.status === "ready" && !delivery.rider_status && (
+                            <Button 
+                              className="w-full rounded-full bg-green-500 hover:bg-green-600"
+                              onClick={() => handleAcceptDelivery(delivery.id)}
+                            >
+                              Aceitar Entrega
+                            </Button>
+                          )}
+                          
+                          {delivery.rider_status === "going_to_store" && (
+                            <>
+                              <Button 
+                                className="w-full rounded-full bg-blue-500 hover:bg-blue-600"
+                                onClick={async () => {
+                                  setSelectedDelivery(delivery);
+                                  await loadDeliveryDetails(delivery);
+                                  setIsMapModalOpen(true);
+                                }}
+                              >
+                                <Navigation className="h-4 w-4 mr-2" />
+                                Ver Rota para Loja
+                              </Button>
+                              <Button 
+                                className="w-full rounded-full bg-purple-500 hover:bg-purple-600"
+                                onClick={() => handleArriveAtStore(delivery.id)}
+                              >
+                                Cheguei na Loja
+                              </Button>
+                            </>
+                          )}
+                          
+                          {delivery.rider_status === "at_store" && (
+                            <Button 
+                              className="w-full rounded-full bg-orange-500 hover:bg-orange-600"
+                              onClick={() => handleGoingToCustomer(delivery.id)}
+                            >
+                              Pedido Retirado - Ir para Cliente
+                            </Button>
+                          )}
+                          
+                          {delivery.rider_status === "going_to_customer" && (
+                            <>
+                              <Button 
+                                className="w-full rounded-full bg-blue-500 hover:bg-blue-600"
+                                onClick={async () => {
+                                  setSelectedDelivery(delivery);
+                                  await loadDeliveryDetails(delivery);
+                                  setIsMapModalOpen(true);
+                                }}
+                              >
+                                <Navigation className="h-4 w-4 mr-2" />
+                                Ver Rota para Cliente
+                              </Button>
+                              <Button 
+                                className="w-full rounded-full bg-green-500 hover:bg-green-600"
+                                onClick={() => handleCompleteDelivery(delivery.id)}
+                              >
+                                Finalizar Entrega
+                              </Button>
+                            </>
+                          )}
+                        </div>
                       </CardContent>
                     </Card>
                   ))}
@@ -446,8 +960,9 @@ const RiderDashboard = () => {
                       delivered: "Entregue",
                       on_way: "Em Rota",
                     };
+                    const isOnWay = delivery.status === "on_way";
                     return (
-                      <div key={delivery.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                      <div key={delivery.id} className={`p-4 bg-gray-50 rounded-lg border border-gray-200 ${isOnWay ? 'hover:shadow-md transition-all cursor-pointer' : ''}`}>
                         <div className="flex items-start justify-between mb-2">
                           <div>
                             <h4 className="font-semibold text-gray-900">Pedido #{delivery.id.slice(0, 8).toUpperCase()}</h4>
@@ -463,6 +978,21 @@ const RiderDashboard = () => {
                           <span className="text-sm text-gray-600">Ganho</span>
                           <span className="font-bold text-purple-600">R$ {((delivery.total_milli || 0) * 0.1 / 1000).toFixed(2)}</span>
                         </div>
+                        {isOnWay && (
+                          <div className="mt-3 pt-3 border-t border-gray-200">
+                            <Button
+                              className="w-full rounded-full bg-blue-500 hover:bg-blue-600"
+                              onClick={async () => {
+                                setSelectedDelivery(delivery);
+                                await loadDeliveryDetails(delivery);
+                                setIsMapModalOpen(true);
+                              }}
+                            >
+                              <Navigation className="h-4 w-4 mr-2" />
+                              Ver Rota no Mapa
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -472,6 +1002,71 @@ const RiderDashboard = () => {
           </Card>
         </div>
       </main>
+
+      {/* Modal do Mapa */}
+      <Dialog open={isMapModalOpen} onOpenChange={setIsMapModalOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedDelivery?.rider_status === "going_to_store" 
+                ? "📍 Rota para a Loja" 
+                : selectedDelivery?.rider_status === "going_to_customer"
+                ? "🏠 Rota para o Cliente"
+                : selectedDelivery?.status === "on_way"
+                ? "🗺️ Rota da Entrega"
+                : "🗺️ Mapa da Entrega"}
+            </DialogTitle>
+            <DialogDescription>
+              Visualize a rota da entrega no mapa abaixo
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <DeliveryMap
+              storeAddress={storeInfo ? {
+                lat: storeInfo.lat,
+                lng: storeInfo.lng,
+                street: storeInfo.name,
+                city: storeInfo.city
+              } : undefined}
+              customerAddress={customerInfo ? {
+                lat: customerInfo.lat,
+                lng: customerInfo.lng,
+                street: customerInfo.street,
+                city: customerInfo.city
+              } : undefined}
+              currentStep={selectedDelivery?.rider_status}
+            />
+            <div className="flex gap-2">
+              {storeInfo?.lat && storeInfo?.lng && (selectedDelivery?.rider_status === "going_to_store" || selectedDelivery?.rider_status === "at_store" || (selectedDelivery?.status === "on_way" && !selectedDelivery?.rider_status)) && (
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    const url = `https://www.google.com/maps/dir/?api=1&destination=${storeInfo.lat},${storeInfo.lng}`;
+                    window.open(url, '_blank');
+                  }}
+                >
+                  <Navigation className="h-4 w-4 mr-2" />
+                  Abrir Rota para Loja no Google Maps
+                </Button>
+              )}
+              {customerInfo?.lat && customerInfo?.lng && (selectedDelivery?.rider_status === "going_to_customer" || (selectedDelivery?.status === "on_way" && !selectedDelivery?.rider_status)) && (
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    const url = `https://www.google.com/maps/dir/?api=1&destination=${customerInfo.lat},${customerInfo.lng}`;
+                    window.open(url, '_blank');
+                  }}
+                >
+                  <Navigation className="h-4 w-4 mr-2" />
+                  Abrir Rota para Cliente no Google Maps
+                </Button>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
