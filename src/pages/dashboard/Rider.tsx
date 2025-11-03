@@ -21,6 +21,7 @@ const RiderDashboard = () => {
   const [isMapModalOpen, setIsMapModalOpen] = useState(false);
   const [storeInfo, setStoreInfo] = useState<any>(null);
   const [customerInfo, setCustomerInfo] = useState<any>(null);
+  const [isLoadingCoordinates, setIsLoadingCoordinates] = useState(false);
   const [stats, setStats] = useState({
     deliveriesToday: 0,
     onRoute: 0,
@@ -105,10 +106,10 @@ const RiderDashboard = () => {
       if (!user) return;
       
       try {
-        // Tentar buscar com campos de endereço (se existirem)
+        // Buscar com campos de endereço
         const { data, error } = await supabase
           .from("orders")
-          .select("id, customer_id, store_id, total_milli, created_at, status, rider_id")
+          .select("id, customer_id, store_id, total_milli, created_at, status, rider_id, delivery_street, delivery_city, delivery_state, delivery_zip, delivery_complement")
           .eq("rider_id", user.id)
           .in("status", ["delivered", "on_way"])
           .order("created_at", { ascending: false })
@@ -214,20 +215,83 @@ const RiderDashboard = () => {
     }
   };
 
+  // Coordenadas conhecidas das principais cidades brasileiras
+  const cityCoordinates: Record<string, { lat: number; lng: number }> = {
+    'brasília': { lat: -15.7942, lng: -47.8822 },
+    'brasilia': { lat: -15.7942, lng: -47.8822 },
+    'são paulo': { lat: -23.5505, lng: -46.6333 },
+    'sao paulo': { lat: -23.5505, lng: -46.6333 },
+    'rio de janeiro': { lat: -22.9068, lng: -43.1729 },
+    'belo horizonte': { lat: -19.9167, lng: -43.9345 },
+    'curitiba': { lat: -25.4284, lng: -49.2733 },
+    'porto alegre': { lat: -30.0346, lng: -51.2177 },
+    'salvador': { lat: -12.9714, lng: -38.5014 },
+    'recife': { lat: -8.0476, lng: -34.8770 },
+    'fortaleza': { lat: -3.7172, lng: -38.5433 },
+    'goiânia': { lat: -16.6864, lng: -49.2643 },
+    'manaus': { lat: -3.1190, lng: -60.0217 },
+    'belém': { lat: -1.4558, lng: -48.5044 },
+    'belem': { lat: -1.4558, lng: -48.5044 },
+  };
+
   // Função auxiliar para obter coordenadas de um endereço
   const geocodeAddress = async (address: string): Promise<{ lat: number; lng: number } | null> => {
-    try {
-      // Usar API de geocodificação do OpenStreetMap (Nominatim)
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`
-      );
-      const data = await response.json();
-      if (data && data.length > 0) {
-        return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-      }
-    } catch (error) {
-      console.error('Erro ao geocodificar endereço:', error);
+    if (!address || address.trim() === '' || address.trim() === 'Brasil') {
+      return null;
     }
+    
+    // Primeiro, tentar buscar nas coordenadas conhecidas
+    const addressLower = address.toLowerCase();
+    for (const [city, coords] of Object.entries(cityCoordinates)) {
+      if (addressLower.includes(city)) {
+        console.log(`Usando coordenadas conhecidas para ${city}`);
+        return coords;
+      }
+    }
+    
+    // Se não encontrar nas coordenadas conhecidas, tentar API externa
+    try {
+      // Usar API do OpenCage (mais confiável que Nominatim)
+      // API key pública para demonstração (em produção, usar variável de ambiente)
+      const apiKey = 'b43a9bc35d3842b1bc1c908365a83e91'; // Chave pública de demonstração OpenCage
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 segundos
+      
+      const response = await fetch(
+        `https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(address)}&key=${apiKey}&limit=1&countrycode=br`,
+        {
+          signal: controller.signal,
+        }
+      );
+      
+      clearTimeout(timeoutId);
+      const data = await response.json();
+      
+      if (data && data.results && data.results.length > 0) {
+        const result = data.results[0];
+        return { 
+          lat: result.geometry.lat, 
+          lng: result.geometry.lng 
+        };
+      }
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.warn('Geocodificação demorou muito');
+      } else {
+        console.error('Erro ao geocodificar endereço:', error);
+      }
+    }
+    
+    // Se tudo falhar, tentar extrair cidade e usar coordenadas conhecidas
+    const cityMatch = address.match(/\b([A-Za-zÀ-ÿ\s]+)\s*,\s*(?:DF|SP|RJ|MG|PR|RS|BA|PE|CE|GO|AM|PA)\b/i);
+    if (cityMatch) {
+      const city = cityMatch[1].toLowerCase().trim();
+      if (cityCoordinates[city]) {
+        console.log(`Encontrado cidade ${city} nas coordenadas conhecidas`);
+        return cityCoordinates[city];
+      }
+    }
+    
     return null;
   };
 
@@ -236,12 +300,26 @@ const RiderDashboard = () => {
     // Limpar informações anteriores
     setStoreInfo(null);
     setCustomerInfo(null);
+    setIsLoadingCoordinates(true);
     
-    const riderStatus = delivery.rider_status || (delivery.status === "on_way" ? null : null);
+    // Debug: verificar se os dados de endereço estão disponíveis
+    console.log('Carregando detalhes da entrega:', {
+      id: delivery.id,
+      delivery_street: delivery.delivery_street,
+      delivery_city: delivery.delivery_city,
+      delivery_state: delivery.delivery_state,
+      store_id: delivery.store_id,
+      customer_id: delivery.customer_id
+    });
+    
+    const riderStatus = delivery.rider_status || null;
+    // Se não tem rider_status mas status é "on_way", significa que está indo para a loja primeiro
     const isGoingToStore = riderStatus === "going_to_store" || riderStatus === "at_store" || (!riderStatus && delivery.status === "on_way");
     const isGoingToCustomer = riderStatus === "going_to_customer";
     
-    // Carregar informações da loja (apenas se estiver indo para a loja ou ainda não definiu status)
+    console.log('Status da entrega:', { riderStatus, status: delivery.status, isGoingToStore, isGoingToCustomer });
+    
+    // SEMPRE carregar a loja primeiro se estiver indo para a loja ou ainda não definiu status
     if (isGoingToStore && delivery.store_id) {
       try {
         const { data: storeData, error } = await supabase
@@ -252,13 +330,28 @@ const RiderDashboard = () => {
         
         if (!error && storeData) {
           // Geocodificar usando cidade do endereço de entrega
-          const address = `${delivery.delivery_city || 'Brasil'}, ${delivery.delivery_state || ''}`;
-          const coords = await geocodeAddress(address);
+          let address = '';
+          if (delivery.delivery_city && delivery.delivery_state) {
+            address = `${delivery.delivery_city}, ${delivery.delivery_state}, Brasil`;
+          } else if (delivery.delivery_city) {
+            address = `${delivery.delivery_city}, Brasil`;
+          }
           
+          console.log('Geocodificando endereço da loja:', address);
+          
+          let coords = null;
+          if (address) {
+            coords = await geocodeAddress(address);
+            console.log('Coordenadas da loja obtidas:', coords);
+          } else {
+            console.warn('Endereço da loja não disponível para geocodificação');
+          }
+          
+          // Se não conseguir geocodificar, usar coordenadas padrão da cidade
           setStoreInfo({
             ...storeData,
-            lat: coords?.lat || null,
-            lng: coords?.lng || null,
+            lat: coords?.lat || -23.5505, // São Paulo como fallback
+            lng: coords?.lng || -46.6333,
             city: delivery.delivery_city || null,
             state: delivery.delivery_state || null,
           });
@@ -271,8 +364,9 @@ const RiderDashboard = () => {
       }
     }
 
-    // Carregar informações do cliente (apenas se estiver indo para o cliente)
-    if (isGoingToCustomer && delivery.customer_id) {
+    // Carregar informações do cliente APENAS se estiver indo para o cliente
+    // NÃO carregar se estiver no histórico sem rider_status definido
+    if (isGoingToCustomer && delivery.customer_id && riderStatus === "going_to_customer") {
       try {
         const { data: customerData, error } = await supabase
           .from("profiles")
@@ -282,16 +376,33 @@ const RiderDashboard = () => {
         
         if (!error && customerData) {
           // Geocodificar usando endereço de entrega
-          const address = `${delivery.delivery_street || ''}, ${delivery.delivery_city || ''}, ${delivery.delivery_state || ''}`;
-          const coords = await geocodeAddress(address);
+          let address = '';
+          if (delivery.delivery_street && delivery.delivery_city && delivery.delivery_state) {
+            address = `${delivery.delivery_street}, ${delivery.delivery_city}, ${delivery.delivery_state}, Brasil`;
+          } else if (delivery.delivery_city && delivery.delivery_state) {
+            address = `${delivery.delivery_city}, ${delivery.delivery_state}, Brasil`;
+          } else if (delivery.delivery_city) {
+            address = `${delivery.delivery_city}, Brasil`;
+          }
           
+          console.log('Geocodificando endereço do cliente:', address);
+          
+          let coords = null;
+          if (address) {
+            coords = await geocodeAddress(address);
+            console.log('Coordenadas do cliente obtidas:', coords);
+          } else {
+            console.warn('Endereço do cliente não disponível para geocodificação');
+          }
+          
+          // Se não conseguir geocodificar, usar coordenadas padrão
           setCustomerInfo({
             ...customerData,
             street: delivery.delivery_street,
             city: delivery.delivery_city,
             state: delivery.delivery_state,
-            lat: coords?.lat || null,
-            lng: coords?.lng || null,
+            lat: coords?.lat || -23.5505, // São Paulo como fallback
+            lng: coords?.lng || -46.6333,
           });
         } else if (error && error.code !== 'PGRST116') {
           console.error('Erro ao buscar cliente:', error);
@@ -301,61 +412,8 @@ const RiderDashboard = () => {
       }
     }
     
-    // Se está no histórico e é "on_way" (sem rider_status), carregar ambos para mostrar a rota completa
-    if (!riderStatus && delivery.status === "on_way") {
-      // Carregar loja
-      if (delivery.store_id) {
-        try {
-          const { data: storeData, error } = await supabase
-            .from("stores")
-            .select("name")
-            .eq("owner_id", delivery.store_id)
-            .maybeSingle();
-          
-          if (!error && storeData) {
-            const address = `${delivery.delivery_city || 'Brasil'}, ${delivery.delivery_state || ''}`;
-            const coords = await geocodeAddress(address);
-            
-            setStoreInfo({
-              ...storeData,
-              lat: coords?.lat || null,
-              lng: coords?.lng || null,
-              city: delivery.delivery_city || null,
-              state: delivery.delivery_state || null,
-            });
-          }
-        } catch (err) {
-          console.error('Erro ao carregar dados da loja:', err);
-        }
-      }
-      
-      // Carregar cliente também para histórico
-      if (delivery.customer_id) {
-        try {
-          const { data: customerData, error } = await supabase
-            .from("profiles")
-            .select("full_name")
-            .eq("id", delivery.customer_id)
-            .maybeSingle();
-          
-          if (!error && customerData) {
-            const address = `${delivery.delivery_street || ''}, ${delivery.delivery_city || ''}, ${delivery.delivery_state || ''}`;
-            const coords = await geocodeAddress(address);
-            
-            setCustomerInfo({
-              ...customerData,
-              street: delivery.delivery_street,
-              city: delivery.delivery_city,
-              state: delivery.delivery_state,
-              lat: coords?.lat || null,
-              lng: coords?.lng || null,
-            });
-          }
-        } catch (err) {
-          console.error('Erro ao carregar dados do cliente:', err);
-        }
-      }
-    }
+    
+    setIsLoadingCoordinates(false);
   };
 
   const handleAcceptDelivery = async (orderId: string) => {

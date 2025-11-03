@@ -108,14 +108,20 @@ const DeliveryMap = ({ storeAddress, customerAddress, currentStep }: DeliveryMap
     };
   }, [storeAddress, customerAddress, currentStep]);
 
-  // Se não houver coordenadas, mostrar mensagem
+  // Se não houver coordenadas, mostrar mensagem ou mapa padrão
+  // Mas mostrar o mapa se tiver pelo menos uma coordenada (loja ou cliente)
   if (!storeAddress?.lat && !customerAddress?.lat) {
     return (
-      <div className="w-full h-64 rounded-lg bg-gray-100 flex items-center justify-center">
+      <div className="w-full h-96 rounded-lg bg-gray-100 flex flex-col items-center justify-center" style={{ minHeight: '400px' }}>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
         <p className="text-gray-500">Carregando coordenadas...</p>
+        <p className="text-sm text-gray-400 mt-2">Isso pode levar alguns segundos</p>
       </div>
     );
   }
+  
+  // Se tiver coordenadas da loja mas não do cliente, mostrar mapa da loja
+  // O mapa será renderizado com a loja mesmo sem cliente
 
   return <div ref={mapContainerRef} className="w-full h-96 rounded-lg" style={{ zIndex: 0, minHeight: '400px' }} />;
 };
