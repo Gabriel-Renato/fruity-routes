@@ -249,16 +249,32 @@ const RiderDashboard = () => {
       }
     }
     
-    // Se não encontrar nas coordenadas conhecidas, tentar API externa
+    // Se não encontrar nas coordenadas conhecidas, usar Google Maps Geocoding API
     try {
-      // Usar API do OpenCage (mais confiável que Nominatim)
-      // API key pública para demonstração (em produção, usar variável de ambiente)
-      const apiKey = 'b43a9bc35d3842b1bc1c908365a83e91'; // Chave pública de demonstração OpenCage
+      // IMPORTANTE: Configure a variável de ambiente VITE_GOOGLE_MAPS_API_KEY no arquivo .env
+      // Obtenha sua chave em: https://console.cloud.google.com/google/maps-apis
+      const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+      
+      if (!apiKey || apiKey === '') {
+        console.warn('Google Maps API Key não configurada. Adicione VITE_GOOGLE_MAPS_API_KEY no arquivo .env');
+        // Tentar extrair cidade e usar coordenadas conhecidas
+        const cityMatch = address.match(/\b([A-Za-zÀ-ÿ\s]+)\s*,\s*(?:DF|SP|RJ|MG|PR|RS|BA|PE|CE|GO|AM|PA)\b/i);
+        if (cityMatch) {
+          const city = cityMatch[1].toLowerCase().trim();
+          if (cityCoordinates[city]) {
+            console.log(`Usando coordenadas conhecidas (API key não configurada) para ${city}`);
+            return cityCoordinates[city];
+          }
+        }
+        return null;
+      }
+      
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 segundos
       
+      // Google Maps Geocoding API
       const response = await fetch(
-        `https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(address)}&key=${apiKey}&limit=1&countrycode=br`,
+        `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address + ', Brasil')}&key=${apiKey}&language=pt-BR&region=br`,
         {
           signal: controller.signal,
         }
@@ -267,12 +283,17 @@ const RiderDashboard = () => {
       clearTimeout(timeoutId);
       const data = await response.json();
       
-      if (data && data.results && data.results.length > 0) {
-        const result = data.results[0];
+      if (data.status === 'OK' && data.results && data.results.length > 0) {
+        const location = data.results[0].geometry.location;
+        console.log('Coordenadas obtidas via Google Maps:', location);
         return { 
-          lat: result.geometry.lat, 
-          lng: result.geometry.lng 
+          lat: location.lat, 
+          lng: location.lng 
         };
+      } else if (data.status === 'ZERO_RESULTS') {
+        console.warn('Nenhum resultado encontrado para:', address);
+      } else {
+        console.warn('Erro na API do Google Maps:', data.status, data.error_message);
       }
     } catch (error: any) {
       if (error.name === 'AbortError') {
