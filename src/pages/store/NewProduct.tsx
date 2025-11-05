@@ -81,10 +81,10 @@ const NewProduct = () => {
       if (uploadError) {
         console.error('Erro no upload:', uploadError);
         if (uploadError.message.includes('new row violates row-level security') || uploadError.message.includes('RLS')) {
-          throw new Error("Erro de permissão. Verifique se o bucket 'products' existe e tem políticas RLS configuradas no Supabase.");
+          throw new Error("Erro de permissão. Verifique se o bucket 'products' existe, está marcado como PÚBLICO e tem políticas RLS configuradas. Veja STORAGE_SETUP.md para instruções.");
         }
         if (uploadError.message.includes('Bucket not found') || uploadError.message.includes('does not exist')) {
-          throw new Error("Bucket 'products' não encontrado. Crie o bucket no Supabase Dashboard (Storage > Create Bucket).");
+          throw new Error("Bucket 'products' não encontrado. Crie o bucket no Supabase Dashboard (Storage > Create Bucket) e marque como PÚBLICO. Veja STORAGE_SETUP.md para instruções detalhadas.");
         }
         throw uploadError;
       }
