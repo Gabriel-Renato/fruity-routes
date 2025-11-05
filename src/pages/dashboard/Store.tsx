@@ -4,7 +4,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Store, Package, TrendingUp, DollarSign, Plus, Edit, Trash2, ShoppingBag, Clock, Star, MapPin, User, Bike } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Store, Package, TrendingUp, DollarSign, Plus, Edit, Trash2, ShoppingBag, Clock, Star, MapPin, User, Bike, Tag } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 
 const StoreDashboard = () => {
@@ -14,6 +18,11 @@ const StoreDashboard = () => {
   const [products, setProducts] = useState<Array<{ id: string; name: string; price_milli: number }>>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [availableRiders, setAvailableRiders] = useState<any[]>([]);
+  const [promotions, setPromotions] = useState<Array<{ id: string; product_id: string; discount_percentage: number; end_date: string | null; active: boolean; product: { name: string } }>>([]);
+  const [isPromotionModalOpen, setIsPromotionModalOpen] = useState(false);
+  const [selectedProductForPromotion, setSelectedProductForPromotion] = useState<string>("");
+  const [discountPercentage, setDiscountPercentage] = useState<string>("");
+  const [promotionEndDate, setPromotionEndDate] = useState<string>("");
   const [stats, setStats] = useState({
     totalProducts: 0,
     ordersToday: 0,
@@ -36,6 +45,17 @@ const StoreDashboard = () => {
           .eq("store_id", user.id)
           .order("created_at", { ascending: false });
         setProducts(productsData || []);
+
+        // Carregar promoções
+        const { data: promotionsData } = await supabase
+          .from("promotions")
+          .select("id, product_id, discount_percentage, end_date, active")
+          .eq("store_id", user.id)
+          .order("created_at", { ascending: false });
+        setPromotions((promotionsData || []).map((p: any) => ({
+          ...p,
+          product: { name: "" }
+        })));
 
         // Carregar pedidos (sem campos novos para evitar erro 400 até migration ser aplicada)
         const { data: ordersData, error: ordersError } = await supabase
@@ -167,6 +187,95 @@ const StoreDashboard = () => {
       toast({
         title: "Produto excluído",
         description: "Produto removido com sucesso",
+      });
+    }
+  };
+
+  const handleCreatePromotion = async () => {
+    if (!selectedProductForPromotion || !discountPercentage) {
+      toast({
+        title: "Erro",
+        description: "Preencha todos os campos",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const discount = parseInt(discountPercentage);
+    if (isNaN(discount) || discount <= 0 || discount > 100) {
+      toast({
+        title: "Erro",
+        description: "Desconto deve ser um número entre 1 e 100",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!user) return;
+
+    const promotionData: any = {
+      product_id: selectedProductForPromotion,
+      store_id: user.id,
+      discount_percentage: discount,
+      active: true,
+    };
+
+    if (promotionEndDate) {
+      promotionData.end_date = new Date(promotionEndDate).toISOString();
+    }
+
+    const { error } = await supabase
+      .from("promotions")
+      .insert(promotionData);
+
+    if (error) {
+      toast({
+        title: "Erro",
+        description: "Não foi possível criar a promoção",
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "Sucesso",
+        description: "Promoção criada com sucesso",
+      });
+      setIsPromotionModalOpen(false);
+      setSelectedProductForPromotion("");
+      setDiscountPercentage("");
+      setPromotionEndDate("");
+      
+      // Recarregar promoções
+      const { data: promotionsData } = await supabase
+        .from("promotions")
+        .select("id, product_id, discount_percentage, end_date, active")
+        .eq("store_id", user.id)
+        .order("created_at", { ascending: false });
+      setPromotions((promotionsData || []).map((p: any) => ({
+        ...p,
+        product: { name: "" }
+      })));
+    }
+  };
+
+  const handleDeletePromotion = async (promotionId: string) => {
+    if (!confirm("Tem certeza que deseja excluir esta promoção?")) return;
+    
+    const { error } = await supabase
+      .from("promotions")
+      .delete()
+      .eq("id", promotionId);
+    
+    if (error) {
+      toast({
+        title: "Erro",
+        description: "Não foi possível excluir a promoção",
+        variant: "destructive",
+      });
+    } else {
+      setPromotions(promotions.filter(p => p.id !== promotionId));
+      toast({
+        title: "Sucesso",
+        description: "Promoção excluída com sucesso",
       });
     }
   };
@@ -465,6 +574,83 @@ const StoreDashboard = () => {
           </Card>
         </div>
 
+        {/* Promoções */}
+        <Card className="bg-white border border-gray-200 shadow-lg mb-6">
+          <CardHeader className="pb-4">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <Tag className="h-5 w-5 text-orange-500" />
+                Promoções Ativas
+              </CardTitle>
+              <Button 
+                className="rounded-full bg-orange-500 hover:bg-orange-600"
+                onClick={() => setIsPromotionModalOpen(true)}
+                size="sm"
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Nova Promoção
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {promotions.length === 0 ? (
+              <div className="text-center py-12">
+                <Tag className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                <p className="text-gray-600 font-medium mb-2">Nenhuma promoção ativa</p>
+                <p className="text-sm text-gray-400 mb-4">Crie promoções para seus produtos e atraia mais clientes</p>
+                <Button className="rounded-full bg-orange-500 hover:bg-orange-600" onClick={() => setIsPromotionModalOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Criar Primeira Promoção
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-3 max-h-96 overflow-y-auto">
+                {promotions.map((promo) => {
+                  const product = products.find(p => p.id === promo.product_id);
+                  const isExpired = promo.end_date && new Date(promo.end_date) < new Date();
+                  return (
+                    <Card key={promo.id} className="border border-orange-200 hover:shadow-md transition-all">
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <h4 className="font-semibold text-gray-900">{product?.name || promo.product.name}</h4>
+                              <Badge className="bg-orange-500 text-white">{promo.discount_percentage}% OFF</Badge>
+                              {isExpired && (
+                                <Badge variant="destructive">Expirada</Badge>
+                              )}
+                              {!promo.active && (
+                                <Badge variant="secondary">Inativa</Badge>
+                              )}
+                            </div>
+                            {promo.end_date && (
+                              <p className="text-sm text-gray-500 flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                Válida até: {new Date(promo.end_date).toLocaleDateString('pt-BR')}
+                              </p>
+                            )}
+                            {!promo.end_date && (
+                              <p className="text-sm text-gray-500">Sem data de expiração</p>
+                            )}
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="rounded-full text-red-500 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => handleDeletePromotion(promo.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {/* Todos os Pedidos */}
         <Card className="bg-white border border-gray-200 shadow-lg">
           <CardHeader className="pb-4">
@@ -557,6 +743,61 @@ const StoreDashboard = () => {
           </CardContent>
         </Card>
       </main>
+
+      {/* Modal de Nova Promoção */}
+      <Dialog open={isPromotionModalOpen} onOpenChange={setIsPromotionModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Criar Nova Promoção</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="product">Produto</Label>
+              <Select value={selectedProductForPromotion} onValueChange={setSelectedProductForPromotion}>
+                <SelectTrigger id="product">
+                  <SelectValue placeholder="Selecione um produto" />
+                </SelectTrigger>
+                <SelectContent>
+                  {products.map((product) => (
+                    <SelectItem key={product.id} value={product.id}>
+                      {product.name} - R$ {(product.price_milli / 1000).toFixed(2)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="discount">Desconto (%)</Label>
+              <Input
+                id="discount"
+                type="number"
+                min="1"
+                max="100"
+                value={discountPercentage}
+                onChange={(e) => setDiscountPercentage(e.target.value)}
+                placeholder="Ex: 30"
+              />
+            </div>
+            <div>
+              <Label htmlFor="endDate">Data de Expiração (opcional)</Label>
+              <Input
+                id="endDate"
+                type="datetime-local"
+                value={promotionEndDate}
+                onChange={(e) => setPromotionEndDate(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setIsPromotionModalOpen(false)}>
+                Cancelar
+              </Button>
+              <Button onClick={handleCreatePromotion} className="bg-orange-500 hover:bg-orange-600">
+                Criar Promoção
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

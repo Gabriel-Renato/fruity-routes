@@ -16,7 +16,7 @@ const CustomerDashboard = () => {
   const [user, setUser] = useState<any>(null);
   const [userType, setUserType] = useState<string | null>(null);
   const [profile, setProfile] = useState<any>(null);
-  const [products, setProducts] = useState<Array<{ id: string; name: string; price_milli: number; store_id: string }>>([]);
+  const [products, setProducts] = useState<Array<{ id: string; name: string; price_milli: number; store_id: string; image_url?: string }>>([]);
   const [nearbyStores, setNearbyStores] = useState<any[]>([]);
   const [recentOrders, setRecentOrders] = useState<Array<{ id: string; created_at: string; total_milli: number; status: string; store_id: string }>>([]);
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
@@ -31,6 +31,7 @@ const CustomerDashboard = () => {
   const [selectedAddress, setSelectedAddress] = useState<any>(null);
   const [activeOrders, setActiveOrders] = useState<any[]>([]);
   const [historyOrders, setHistoryOrders] = useState<any[]>([]);
+  const [promotions, setPromotions] = useState<Array<{ id: string; product_id: string; discount_percentage: number; end_date: string | null }>>([]);
   const { addItem, items, totalMilli, clear } = useCart();
 
   useEffect(() => {
@@ -69,10 +70,28 @@ const CustomerDashboard = () => {
 
   useEffect(() => {
     const loadProducts = async () => {
-      const { data } = await supabase.from("products").select("id,name,price_milli,store_id").order("created_at", { ascending: false });
+      const { data } = await supabase.from("products").select("id,name,price_milli,store_id,image_url").order("created_at", { ascending: false });
       setProducts(data || []);
     };
     loadProducts();
+  }, []);
+
+  useEffect(() => {
+    const loadPromotions = async () => {
+      const now = new Date().toISOString();
+      const { data } = await supabase
+        .from("promotions")
+        .select("id, product_id, discount_percentage, end_date")
+        .eq("active", true)
+        .lte("start_date", now);
+      
+      // Filtrar promoções que não expiraram
+      const validPromotions = (data || []).filter(p => 
+        !p.end_date || new Date(p.end_date) >= new Date()
+      );
+      setPromotions(validPromotions);
+    };
+    loadPromotions();
   }, []);
 
   useEffect(() => {
@@ -401,11 +420,21 @@ const CustomerDashboard = () => {
     });
   };
 
-  // Produtos com desconto (promoções)
-  const promotionalProducts = products.slice(0, 3).map(p => ({
-    ...p,
-    discountPrice: Math.floor(p.price_milli * 0.7), // 30% OFF
-  }));
+  // Produtos com desconto (promoções reais do banco)
+  const promotionalProducts = products
+    .filter(p => promotions.some(promo => promo.product_id === p.id))
+    .map(p => {
+      const promotion = promotions.find(promo => promo.product_id === p.id);
+      if (!promotion) return null;
+      const discountPrice = Math.floor(p.price_milli * (1 - promotion.discount_percentage / 100));
+      return {
+        ...p,
+        discountPrice,
+        discountPercentage: promotion.discount_percentage,
+      };
+    })
+    .filter((p): p is NonNullable<typeof p> => p !== null)
+    .slice(0, 6);
 
   // Produtos recomendados (os mais recentes)
   const recommendedProducts = products.slice(0, 6);
@@ -415,9 +444,11 @@ const CustomerDashboard = () => {
       <nav className="sticky top-0 z-50 border-b bg-white/80 backdrop-blur-md shadow-sm">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center">
-              <span className="text-white font-bold text-lg">🍊</span>
-            </div>
+            <img 
+              src="/favicon.png" 
+              alt="StarFruit Logo" 
+              className="w-10 h-10"
+            />
             <h1 className="text-2xl font-bold bg-gradient-to-r from-orange-500 to-orange-700 bg-clip-text text-transparent">
             StarFruit
           </h1>
@@ -603,10 +634,17 @@ const CustomerDashboard = () => {
                 {promotionalProducts.map(p => (
                   <Card key={p.id} className="bg-white hover:shadow-lg transition-all border border-red-100">
                     <CardContent className="p-4">
+                      <div className="h-24 bg-gradient-to-br from-red-50 to-orange-50 rounded-lg mb-3 flex items-center justify-center overflow-hidden">
+                        {p.image_url ? (
+                          <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="text-3xl">🍊</span>
+                        )}
+                      </div>
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex-1">
                           <h4 className="font-semibold text-gray-900">{p.name}</h4>
-                          <Badge className="mt-2 bg-red-500 text-white">30% OFF</Badge>
+                          <Badge className="mt-2 bg-red-500 text-white">{p.discountPercentage}% OFF</Badge>
                         </div>
                       </div>
                       <div className="flex items-center gap-2 mt-3">
@@ -643,8 +681,12 @@ const CustomerDashboard = () => {
               {recommendedProducts.slice(0, 3).map(p => (
                 <Card key={p.id} className="bg-white hover:shadow-lg transition-all border border-gray-200">
                   <CardContent className="p-4">
-                    <div className="h-32 bg-gradient-to-br from-orange-100 to-orange-200 rounded-lg mb-3 flex items-center justify-center">
-                      <span className="text-4xl">🍊</span>
+                    <div className="h-32 bg-gradient-to-br from-orange-100 to-orange-200 rounded-lg mb-3 flex items-center justify-center overflow-hidden">
+                      {p.image_url ? (
+                        <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-4xl">🍊</span>
+                      )}
                     </div>
                     <h4 className="font-semibold text-gray-900 mb-2">{p.name}</h4>
                     <div className="flex items-center justify-between">
@@ -677,8 +719,12 @@ const CustomerDashboard = () => {
             <div className="grid md:grid-cols-4 gap-4">
               {products.map(p => (
                 <Card key={p.id} className="bg-white hover:shadow-xl transition-all duration-300 border border-gray-200 overflow-hidden group cursor-pointer">
-                  <div className="relative h-40 bg-gradient-to-br from-orange-100 to-orange-200 flex items-center justify-center">
-                    <span className="text-6xl opacity-80">🍊</span>
+                  <div className="relative h-40 bg-gradient-to-br from-orange-100 to-orange-200 flex items-center justify-center overflow-hidden">
+                    {p.image_url ? (
+                      <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-6xl opacity-80">🍊</span>
+                    )}
                     <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       <Button size="sm" className="rounded-full bg-white shadow-md hover:bg-orange-500 hover:text-white" onClick={(e) => {
                         e.stopPropagation();

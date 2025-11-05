@@ -57,17 +57,35 @@ const NewProduct = () => {
     }
 
     try {
+      setLoading(true);
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) {
+        toast({
+          title: "Erro",
+          description: "Você precisa estar logado para fazer upload de imagens",
+          variant: "destructive",
+        });
+        return;
+      }
 
       const fileExt = file.name.split('.').pop();
       const fileName = `${user.id}/${Date.now()}.${fileExt}`;
       
       const { error: uploadError } = await supabase.storage
         .from('products')
-        .upload(fileName, file);
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
 
       if (uploadError) {
+        console.error('Erro no upload:', uploadError);
+        if (uploadError.message.includes('new row violates row-level security') || uploadError.message.includes('RLS')) {
+          throw new Error("Erro de permissão. Verifique se o bucket 'products' existe e tem políticas RLS configuradas no Supabase.");
+        }
+        if (uploadError.message.includes('Bucket not found') || uploadError.message.includes('does not exist')) {
+          throw new Error("Bucket 'products' não encontrado. Crie o bucket no Supabase Dashboard (Storage > Create Bucket).");
+        }
         throw uploadError;
       }
 
@@ -82,11 +100,14 @@ const NewProduct = () => {
         description: "Imagem carregada com sucesso",
       });
     } catch (error: any) {
+      console.error('Erro completo:', error);
       toast({
         title: "Erro",
-        description: error.message || "Erro ao fazer upload da imagem",
+        description: error.message || "Erro ao fazer upload da imagem. Verifique se o bucket 'products' está configurado no Supabase.",
         variant: "destructive",
       });
+    } finally {
+      setLoading(false);
     }
   };
 
