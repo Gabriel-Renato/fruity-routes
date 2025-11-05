@@ -249,58 +249,72 @@ const RiderDashboard = () => {
       }
     }
     
-    // Se não encontrar nas coordenadas conhecidas, usar Google Maps Geocoding API
+    // Tentar usar Nominatim (OpenStreetMap) - GRATUITO e não precisa de API key
     try {
-      // IMPORTANTE: Configure a variável de ambiente VITE_GOOGLE_MAPS_API_KEY no arquivo .env
-      // Obtenha sua chave em: https://console.cloud.google.com/google/maps-apis
-      const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-      
-      if (!apiKey || apiKey === '') {
-        console.warn('Google Maps API Key não configurada. Adicione VITE_GOOGLE_MAPS_API_KEY no arquivo .env');
-        // Tentar extrair cidade e usar coordenadas conhecidas
-        const cityMatch = address.match(/\b([A-Za-zÀ-ÿ\s]+)\s*,\s*(?:DF|SP|RJ|MG|PR|RS|BA|PE|CE|GO|AM|PA)\b/i);
-        if (cityMatch) {
-          const city = cityMatch[1].toLowerCase().trim();
-          if (cityCoordinates[city]) {
-            console.log(`Usando coordenadas conhecidas (API key não configurada) para ${city}`);
-            return cityCoordinates[city];
-          }
-        }
-        return null;
-      }
-      
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 segundos
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 segundos
       
-      // Google Maps Geocoding API
+      // Nominatim API - Gratuita
       const response = await fetch(
-        `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address + ', Brasil')}&key=${apiKey}&language=pt-BR&region=br`,
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address + ', Brasil')}&limit=1&addressdetails=1`,
         {
           signal: controller.signal,
+          headers: {
+            'User-Agent': 'StarFruit Delivery App' // Requerido pela Nominatim
+          }
         }
       );
       
       clearTimeout(timeoutId);
       const data = await response.json();
       
-      if (data.status === 'OK' && data.results && data.results.length > 0) {
-        const location = data.results[0].geometry.location;
-        console.log('Coordenadas obtidas via Google Maps:', location);
+      if (Array.isArray(data) && data.length > 0) {
+        const result = data[0];
+        console.log('Coordenadas obtidas via Nominatim:', result);
         return { 
-          lat: location.lat, 
-          lng: location.lng 
+          lat: parseFloat(result.lat), 
+          lng: parseFloat(result.lon) 
         };
-      } else if (data.status === 'ZERO_RESULTS') {
-        console.warn('Nenhum resultado encontrado para:', address);
       } else {
-        console.warn('Erro na API do Google Maps:', data.status, data.error_message);
+        console.warn('Nenhum resultado encontrado no Nominatim para:', address);
       }
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        console.warn('Geocodificação demorou muito');
+        console.warn('Geocodificação via Nominatim demorou muito');
       } else {
-        console.error('Erro ao geocodificar endereço:', error);
+        console.error('Erro ao geocodificar endereço via Nominatim:', error);
       }
+    }
+    
+    // Se Nominatim falhar, tentar Google Maps (se tiver API key)
+    try {
+      const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+      
+      if (apiKey && apiKey !== '') {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        
+        const response = await fetch(
+          `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address + ', Brasil')}&key=${apiKey}&language=pt-BR&region=br`,
+          {
+            signal: controller.signal,
+          }
+        );
+        
+        clearTimeout(timeoutId);
+        const data = await response.json();
+        
+        if (data.status === 'OK' && data.results && data.results.length > 0) {
+          const location = data.results[0].geometry.location;
+          console.log('Coordenadas obtidas via Google Maps:', location);
+          return { 
+            lat: location.lat, 
+            lng: location.lng 
+          };
+        }
+      }
+    } catch (error: any) {
+      console.error('Erro ao geocodificar via Google Maps:', error);
     }
     
     // Se tudo falhar, tentar extrair cidade e usar coordenadas conhecidas
@@ -308,7 +322,7 @@ const RiderDashboard = () => {
     if (cityMatch) {
       const city = cityMatch[1].toLowerCase().trim();
       if (cityCoordinates[city]) {
-        console.log(`Encontrado cidade ${city} nas coordenadas conhecidas`);
+        console.log(`Usando coordenadas conhecidas para ${city}`);
         return cityCoordinates[city];
       }
     }
@@ -340,9 +354,73 @@ const RiderDashboard = () => {
     
     console.log('Status da entrega:', { riderStatus, status: delivery.status, isGoingToStore, isGoingToCustomer });
     
-    // SEMPRE carregar a loja primeiro se estiver indo para a loja ou ainda não definiu status
-    if (isGoingToStore && delivery.store_id) {
-      try {
+    // Função auxiliar para obter coordenadas com fallback - SEMPRE retorna coordenadas
+    const getCoordinatesWithFallback = async (address: string, city?: string, state?: string): Promise<{ lat: number; lng: number }> => {
+      // PRIORIDADE 1: Verificar se a cidade está nas coordenadas conhecidas (mais rápido e confiável)
+      if (city) {
+        const cityLower = city.toLowerCase().trim();
+        // Verificar variações comuns
+        const cityVariations = [
+          cityLower,
+          cityLower.replace('ã', 'a').replace('á', 'a').replace('â', 'a'),
+          cityLower.replace('é', 'e').replace('ê', 'e'),
+          cityLower.replace('í', 'i'),
+          cityLower.replace('ó', 'o').replace('ô', 'o'),
+          cityLower.replace('ú', 'u'),
+        ];
+        
+        for (const variation of cityVariations) {
+          if (cityCoordinates[variation]) {
+            console.log(`✓ Usando coordenadas conhecidas para ${city} (${variation})`);
+            return cityCoordinates[variation];
+          }
+        }
+      }
+      
+      // PRIORIDADE 2: Tentar geocodificação apenas se não tiver coordenadas conhecidas
+      if (address && address !== 'Brasil' && !address.includes('Brasília, DF, Brasil')) {
+        try {
+          const coords = await geocodeAddress(address);
+          if (coords && coords.lat && coords.lng) {
+            console.log('✓ Coordenadas obtidas via geocodificação:', coords);
+            return coords;
+          }
+        } catch (err) {
+          console.warn('Erro na geocodificação:', err);
+        }
+      }
+      
+      // PRIORIDADE 3: Tentar extrair cidade do endereço e usar coordenadas conhecidas
+      if (address) {
+        const cityMatch = address.match(/\b([A-Za-zÀ-ÿ\s]+)\s*,\s*(?:DF|SP|RJ|MG|PR|RS|BA|PE|CE|GO|AM|PA)\b/i);
+        if (cityMatch) {
+          const extractedCity = cityMatch[1].toLowerCase().trim();
+          const cityVariations = [
+            extractedCity,
+            extractedCity.replace('ã', 'a').replace('á', 'a'),
+          ];
+          
+          for (const variation of cityVariations) {
+            if (cityCoordinates[variation]) {
+              console.log(`✓ Usando coordenadas conhecidas extraídas do endereço: ${variation}`);
+              return cityCoordinates[variation];
+            }
+          }
+        }
+      }
+      
+      // FALLBACK FINAL: Brasília (sempre retorna algo)
+      console.log('⚠ Usando coordenadas padrão de Brasília (fallback)');
+      return { lat: -15.7942, lng: -47.8822 };
+    };
+    
+    // SEMPRE carregar a loja (mesmo sem store_id, usar coordenadas padrão)
+    const city = delivery.delivery_city || 'Brasília';
+    const state = delivery.delivery_state || 'DF';
+    
+    try {
+      let storeName = 'Loja';
+      if (delivery.store_id) {
         const { data: storeData, error } = await supabase
           .from("stores")
           .select("name")
@@ -350,45 +428,52 @@ const RiderDashboard = () => {
           .maybeSingle();
         
         if (!error && storeData) {
-          // Geocodificar usando cidade do endereço de entrega
-          let address = '';
-          if (delivery.delivery_city && delivery.delivery_state) {
-            address = `${delivery.delivery_city}, ${delivery.delivery_state}, Brasil`;
-          } else if (delivery.delivery_city) {
-            address = `${delivery.delivery_city}, Brasil`;
-          }
-          
-          console.log('Geocodificando endereço da loja:', address);
-          
-          let coords = null;
-          if (address) {
-            coords = await geocodeAddress(address);
-            console.log('Coordenadas da loja obtidas:', coords);
-          } else {
-            console.warn('Endereço da loja não disponível para geocodificação');
-          }
-          
-          // Se não conseguir geocodificar, usar coordenadas padrão da cidade
-          setStoreInfo({
-            ...storeData,
-            lat: coords?.lat || -23.5505, // São Paulo como fallback
-            lng: coords?.lng || -46.6333,
-            city: delivery.delivery_city || null,
-            state: delivery.delivery_state || null,
-          });
-        } else if (error && error.code !== 'PGRST116') {
-          // PGRST116 significa "não encontrou", o que é ok, mas outros erros devem ser logados
-          console.error('Erro ao buscar loja:', error);
+          storeName = storeData.name;
         }
-      } catch (err) {
-        console.error('Erro ao carregar dados da loja:', err);
       }
+      
+      // Montar endereço para geocodificação
+      let address = '';
+      if (city && state) {
+        address = `${city}, ${state}, Brasil`;
+      } else if (city) {
+        address = `${city}, Brasil`;
+      } else {
+        address = 'Brasília, DF, Brasil';
+      }
+      
+      console.log('📍 Geocodificando endereço da loja:', address);
+      console.log('📍 Cidade:', city, 'Estado:', state);
+      
+      // Obter coordenadas com fallback - SEMPRE retorna coordenadas válidas
+      const coords = await getCoordinatesWithFallback(address, city, state);
+      console.log('✅ Coordenadas da loja obtidas:', coords);
+      
+      setStoreInfo({
+        name: storeName,
+        lat: coords.lat,
+        lng: coords.lng,
+        city: city,
+        state: state,
+      });
+    } catch (err) {
+      console.error('Erro ao carregar dados da loja:', err);
+      // Em caso de erro, definir coordenadas padrão (Brasília)
+      const fallbackCoords = cityCoordinates['brasília'] || { lat: -15.7942, lng: -47.8822 };
+      setStoreInfo({
+        name: 'Loja',
+        lat: fallbackCoords.lat,
+        lng: fallbackCoords.lng,
+        city: city,
+        state: state,
+      });
     }
 
-    // Carregar informações do cliente APENAS se estiver indo para o cliente
-    // NÃO carregar se estiver no histórico sem rider_status definido
-    if (isGoingToCustomer && delivery.customer_id && riderStatus === "going_to_customer") {
-      try {
+    // SEMPRE carregar informações do cliente para mostrar no mapa
+    // Isso permite mostrar o mapa completo mesmo quando está na loja
+    try {
+      let customerName = 'Cliente';
+      if (delivery.customer_id) {
         const { data: customerData, error } = await supabase
           .from("profiles")
           .select("full_name")
@@ -396,41 +481,54 @@ const RiderDashboard = () => {
           .maybeSingle();
         
         if (!error && customerData) {
-          // Geocodificar usando endereço de entrega
-          let address = '';
-          if (delivery.delivery_street && delivery.delivery_city && delivery.delivery_state) {
-            address = `${delivery.delivery_street}, ${delivery.delivery_city}, ${delivery.delivery_state}, Brasil`;
-          } else if (delivery.delivery_city && delivery.delivery_state) {
-            address = `${delivery.delivery_city}, ${delivery.delivery_state}, Brasil`;
-          } else if (delivery.delivery_city) {
-            address = `${delivery.delivery_city}, Brasil`;
-          }
-          
-          console.log('Geocodificando endereço do cliente:', address);
-          
-          let coords = null;
-          if (address) {
-            coords = await geocodeAddress(address);
-            console.log('Coordenadas do cliente obtidas:', coords);
-          } else {
-            console.warn('Endereço do cliente não disponível para geocodificação');
-          }
-          
-          // Se não conseguir geocodificar, usar coordenadas padrão
-          setCustomerInfo({
-            ...customerData,
-            street: delivery.delivery_street,
-            city: delivery.delivery_city,
-            state: delivery.delivery_state,
-            lat: coords?.lat || -23.5505, // São Paulo como fallback
-            lng: coords?.lng || -46.6333,
-          });
-        } else if (error && error.code !== 'PGRST116') {
-          console.error('Erro ao buscar cliente:', error);
+          customerName = customerData.full_name || 'Cliente';
         }
-      } catch (err) {
-        console.error('Erro ao carregar dados do cliente:', err);
       }
+      
+      // Montar endereço completo para geocodificação
+      const city = delivery.delivery_city || 'Brasília';
+      const state = delivery.delivery_state || 'DF';
+      let address = '';
+      
+      if (delivery.delivery_street && city && state) {
+        // Tentar endereço completo primeiro (mais preciso)
+        address = `${delivery.delivery_street}, ${city}, ${state}, Brasil`;
+      } else if (city && state) {
+        address = `${city}, ${state}, Brasil`;
+      } else if (city) {
+        address = `${city}, Brasil`;
+      } else {
+        address = 'Brasília, DF, Brasil';
+      }
+      
+      console.log('📍 Geocodificando endereço do cliente:', address);
+      console.log('📍 Cidade:', city, 'Estado:', state);
+      
+      // Obter coordenadas com fallback - sempre retorna coordenadas válidas
+      const coords = await getCoordinatesWithFallback(address, city, state);
+      console.log('✅ Coordenadas do cliente obtidas:', coords);
+      
+      setCustomerInfo({
+        full_name: customerName,
+        street: delivery.delivery_street || '',
+        city: city,
+        state: state,
+        lat: coords.lat,
+        lng: coords.lng,
+      });
+    } catch (err) {
+      console.error('Erro ao carregar dados do cliente:', err);
+      // Em caso de erro, definir coordenadas padrão
+      const city = delivery.delivery_city || 'Brasília';
+      const state = delivery.delivery_state || 'DF';
+      setCustomerInfo({
+        full_name: 'Cliente',
+        street: delivery.delivery_street || '',
+        city: city,
+        state: state,
+        lat: cityCoordinates['brasília']?.lat || -15.7942,
+        lng: cityCoordinates['brasília']?.lng || -47.8822,
+      });
     }
     
     
@@ -525,11 +623,12 @@ const RiderDashboard = () => {
     }
   };
 
-  const handleArriveAtStore = async (orderId: string) => {
+  const handleAtStore = async (orderId: string) => {
     if (!user) return;
     
-    // Atualizar apenas status (rider_status será usado após migration)
+    // Atualizar status para "at_store"
     const updateData: any = {
+      rider_status: "at_store",
       status: "on_way"
     };
     
@@ -549,13 +648,13 @@ const RiderDashboard = () => {
     } else {
       toast({
         title: "📍 Você chegou na loja!",
-        description: "Aguardando o pedido ficar pronto...",
+        description: "Agora você pode ir para a casa do cliente quando o pedido estiver pronto.",
       });
       
       // Recarregar entregas
       const { data, error: reloadError } = await supabase
         .from("orders")
-        .select("id, customer_id, store_id, total_milli, created_at, status, payment_method, delivery_street, delivery_city, delivery_state, delivery_zip, delivery_complement")
+        .select("id, customer_id, store_id, total_milli, created_at, status, payment_method, delivery_street, delivery_city, delivery_state, delivery_zip, delivery_complement, rider_status")
         .eq("rider_id", user.id)
         .in("status", ["ready", "on_way"])
         .order("created_at", { ascending: true })
@@ -577,8 +676,9 @@ const RiderDashboard = () => {
   const handleGoingToCustomer = async (orderId: string) => {
     if (!user) return;
     
-    // Atualizar apenas status (rider_status será usado após migration)
+    // Atualizar status para "going_to_customer"
     const updateData: any = {
+      rider_status: "going_to_customer",
       status: "on_way"
     };
     
@@ -604,7 +704,7 @@ const RiderDashboard = () => {
       // Recarregar entregas
       const { data, error: reloadError } = await supabase
         .from("orders")
-        .select("id, customer_id, store_id, total_milli, created_at, status, payment_method, delivery_street, delivery_city, delivery_state, delivery_zip, delivery_complement")
+        .select("id, customer_id, store_id, total_milli, created_at, status, payment_method, delivery_street, delivery_city, delivery_state, delivery_zip, delivery_complement, rider_status")
         .eq("rider_id", user.id)
         .in("status", ["ready", "on_way"])
         .order("created_at", { ascending: true })
@@ -965,7 +1065,7 @@ const RiderDashboard = () => {
                               </Button>
                               <Button 
                                 className="w-full rounded-full bg-purple-500 hover:bg-purple-600"
-                                onClick={() => handleArriveAtStore(delivery.id)}
+                                onClick={() => handleAtStore(delivery.id)}
                               >
                                 Cheguei na Loja
                               </Button>
@@ -975,7 +1075,27 @@ const RiderDashboard = () => {
                           {delivery.rider_status === "at_store" && (
                             <Button 
                               className="w-full rounded-full bg-orange-500 hover:bg-orange-600"
-                              onClick={() => handleGoingToCustomer(delivery.id)}
+                              onClick={async () => {
+                                // Carregar detalhes primeiro para obter coordenadas
+                                await loadDeliveryDetails(delivery);
+                                
+                                // Aguardar um pouco para garantir que as coordenadas foram carregadas
+                                setTimeout(() => {
+                                  // Abrir Google Maps com endereço do cliente
+                                  if (delivery.delivery_street && delivery.delivery_city && delivery.delivery_state) {
+                                    const address = `${delivery.delivery_street}, ${delivery.delivery_city}, ${delivery.delivery_state}, Brasil`;
+                                    const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
+                                    window.open(url, '_blank');
+                                  } else if (delivery.delivery_city && delivery.delivery_state) {
+                                    const address = `${delivery.delivery_city}, ${delivery.delivery_state}, Brasil`;
+                                    const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
+                                    window.open(url, '_blank');
+                                  }
+                                  
+                                  // Atualizar status
+                                  handleGoingToCustomer(delivery.id);
+                                }, 500);
+                              }}
                             >
                               Pedido Retirado - Ir para Cliente
                             </Button>
@@ -1115,33 +1235,94 @@ const RiderDashboard = () => {
               } : undefined}
               currentStep={selectedDelivery?.rider_status}
             />
-            <div className="flex gap-2">
-              {storeInfo?.lat && storeInfo?.lng && (selectedDelivery?.rider_status === "going_to_store" || selectedDelivery?.rider_status === "at_store" || (selectedDelivery?.status === "on_way" && !selectedDelivery?.rider_status)) && (
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => {
-                    const url = `https://www.google.com/maps/dir/?api=1&destination=${storeInfo.lat},${storeInfo.lng}`;
-                    window.open(url, '_blank');
-                  }}
-                >
-                  <Navigation className="h-4 w-4 mr-2" />
-                  Abrir Rota para Loja no Google Maps
-                </Button>
+            <div className="flex flex-col gap-3">
+              {/* Botões de Ação */}
+              {selectedDelivery && (
+                <div className="flex gap-2">
+                  {selectedDelivery.rider_status === "going_to_store" && (
+                    <Button
+                      className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                      onClick={() => {
+                        if (selectedDelivery?.id) {
+                          handleAtStore(selectedDelivery.id);
+                          setIsMapModalOpen(false);
+                        }
+                      }}
+                    >
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      ✓ Chegou na Loja
+                    </Button>
+                  )}
+                  
+                  {selectedDelivery.rider_status === "at_store" && (
+                    <Button
+                      className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                      onClick={() => {
+                        // Abrir Google Maps diretamente com endereço do cliente
+                        if (customerInfo?.lat && customerInfo?.lng) {
+                          const url = `https://www.google.com/maps/dir/?api=1&destination=${customerInfo.lat},${customerInfo.lng}`;
+                          window.open(url, '_blank');
+                        } else if (selectedDelivery?.delivery_street && selectedDelivery?.delivery_city && selectedDelivery?.delivery_state) {
+                          // Se não tiver coordenadas, usar endereço textual
+                          const address = `${selectedDelivery.delivery_street}, ${selectedDelivery.delivery_city}, ${selectedDelivery.delivery_state}, Brasil`;
+                          const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
+                          window.open(url, '_blank');
+                        } else if (selectedDelivery?.delivery_city && selectedDelivery?.delivery_state) {
+                          const address = `${selectedDelivery.delivery_city}, ${selectedDelivery.delivery_state}, Brasil`;
+                          const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
+                          window.open(url, '_blank');
+                        } else {
+                          toast({
+                            title: "Erro",
+                            description: "Endereço do cliente não disponível",
+                            variant: "destructive",
+                          });
+                          return;
+                        }
+                        
+                        // Atualizar status para "going_to_customer"
+                        if (selectedDelivery?.id) {
+                          handleGoingToCustomer(selectedDelivery.id);
+                        }
+                        setIsMapModalOpen(false);
+                      }}
+                    >
+                      <Bike className="h-4 w-4 mr-2" />
+                      🏠 Ir para Casa do Cliente
+                    </Button>
+                  )}
+                </div>
               )}
-              {customerInfo?.lat && customerInfo?.lng && (selectedDelivery?.rider_status === "going_to_customer" || (selectedDelivery?.status === "on_way" && !selectedDelivery?.rider_status)) && (
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => {
-                    const url = `https://www.google.com/maps/dir/?api=1&destination=${customerInfo.lat},${customerInfo.lng}`;
-                    window.open(url, '_blank');
-                  }}
-                >
-                  <Navigation className="h-4 w-4 mr-2" />
-                  Abrir Rota para Cliente no Google Maps
-                </Button>
-              )}
+              
+              {/* Botões de Navegação */}
+              <div className="flex gap-2">
+                {storeInfo?.lat && storeInfo?.lng && (selectedDelivery?.rider_status === "going_to_store" || selectedDelivery?.rider_status === "at_store" || (selectedDelivery?.status === "on_way" && !selectedDelivery?.rider_status)) && (
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => {
+                      const url = `https://www.google.com/maps/dir/?api=1&destination=${storeInfo.lat},${storeInfo.lng}`;
+                      window.open(url, '_blank');
+                    }}
+                  >
+                    <Navigation className="h-4 w-4 mr-2" />
+                    Abrir Rota para Loja no Google Maps
+                  </Button>
+                )}
+                {customerInfo?.lat && customerInfo?.lng && (selectedDelivery?.rider_status === "going_to_customer" || selectedDelivery?.rider_status === "at_store" || (selectedDelivery?.status === "on_way" && !selectedDelivery?.rider_status)) && (
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => {
+                      const url = `https://www.google.com/maps/dir/?api=1&destination=${customerInfo.lat},${customerInfo.lng}`;
+                      window.open(url, '_blank');
+                    }}
+                  >
+                    <Navigation className="h-4 w-4 mr-2" />
+                    Abrir Rota para Cliente no Google Maps
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </DialogContent>

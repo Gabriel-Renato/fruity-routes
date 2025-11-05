@@ -34,11 +34,9 @@ export const CartProvider = ({ children }: { children: React.ReactNode }) => {
 
   const addItem: CartContextValue["addItem"] = (item, qty = 1) => {
     setState(prev => {
-      // Carrinho por loja: se já houver itens de outra store, limpa
-      const storeId = item.storeId;
-      const sameStoreItems = prev.items.filter(i => i.storeId === storeId);
-      const items = sameStoreItems.length === prev.items.length ? [...prev.items] : [];
-      const idx = items.findIndex(i => i.productId === item.productId);
+      // Permite produtos de diferentes lojas no carrinho
+      const items = [...prev.items];
+      const idx = items.findIndex(i => i.productId === item.productId && i.storeId === item.storeId);
       if (idx >= 0) {
         items[idx] = { ...items[idx], qty: items[idx].qty + qty };
       } else {
