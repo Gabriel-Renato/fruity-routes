@@ -109,9 +109,9 @@ const RiderDashboard = () => {
         // Buscar com campos de endereço
         const { data, error } = await supabase
           .from("orders")
-          .select("id, customer_id, store_id, total_milli, created_at, status, rider_id, delivery_street, delivery_city, delivery_state, delivery_zip, delivery_complement")
+          .select("id, customer_id, store_id, total_milli, created_at, status, payment_method, delivery_street, delivery_city, delivery_state, delivery_zip, delivery_complement")
           .eq("rider_id", user.id)
-          .in("status", ["delivered", "on_way"])
+          .eq("status", "delivered")
           .order("created_at", { ascending: false })
           .limit(10);
         
@@ -726,29 +726,65 @@ const RiderDashboard = () => {
   const handleCompleteDelivery = async (orderId: string) => {
     if (!user) return;
     
+    // Buscar o pedido para calcular o ganho
+    const delivery = availableDeliveries.find(d => d.id === orderId);
+    const totalMilli = delivery?.total_milli || 0;
+    const ganho = (totalMilli * 0.1) / 1000; // 10% do total
+    
     const { error } = await supabase
       .from("orders")
-      .update({ status: "delivered" })
+      .update({ status: "delivered", rider_status: null })
       .eq("id", orderId)
       .eq("rider_id", user.id);
     
     if (error) {
       console.error('Erro ao completar entrega:', error);
-      alert('Erro ao completar entrega. Tente novamente.');
+      toast({
+        title: "Erro",
+        description: error.message || "Não foi possível finalizar a entrega",
+        variant: "destructive",
+      });
     } else {
+      toast({
+        title: "✅ Entrega Finalizada!",
+        description: `Você ganhou R$ ${ganho.toFixed(2)} (10% do valor total de R$ ${(totalMilli / 1000).toFixed(2)})`,
+      });
+      
+      // Remover da lista de entregas disponíveis
       setAvailableDeliveries(availableDeliveries.filter(d => d.id !== orderId));
-      alert('Entrega finalizada com sucesso!');
+      
+      // Recarregar entregas disponíveis
+      const { data, error: reloadError } = await supabase
+        .from("orders")
+        .select("id, customer_id, store_id, total_milli, created_at, status, payment_method, delivery_street, delivery_city, delivery_state, delivery_zip, delivery_complement, rider_status")
+        .eq("rider_id", user.id)
+        .in("status", ["ready", "on_way"])
+        .order("created_at", { ascending: true })
+        .limit(10);
+      
+      if (!reloadError && data) {
+        setAvailableDeliveries(data.map((d: any) => ({
+          ...d,
+          rider_status: d.rider_status || null,
+          store_lat: d.store_lat || null,
+          store_lng: d.store_lng || null,
+          delivery_lat: d.delivery_lat || null,
+          delivery_lng: d.delivery_lng || null,
+        })));
+      }
       
       // Recarregar histórico
-      if (user) {
-        const { data } = await supabase
-          .from("orders")
-          .select("id, customer_id, store_id, total_milli, created_at, status")
-          .in("status", ["delivered", "on_way"])
-          .order("created_at", { ascending: false })
-          .limit(10);
-        setDeliveryHistory(data || []);
-      }
+      const { data: historyData } = await supabase
+        .from("orders")
+        .select("id, customer_id, store_id, total_milli, created_at, status")
+        .eq("rider_id", user.id)
+        .eq("status", "delivered")
+        .order("created_at", { ascending: false })
+        .limit(10);
+      setDeliveryHistory(historyData || []);
+      
+      // Fechar modal se estiver aberto
+      setIsMapModalOpen(false);
     }
   };
 
@@ -1035,10 +1071,13 @@ const RiderDashboard = () => {
                           </Badge>
                         </div>
                         <div className="flex items-center justify-between pt-3 border-t border-gray-200">
-                          <span className="text-sm text-gray-700">Ganho estimado</span>
+                          <span className="text-sm text-gray-700">Ganho (10%)</span>
                           <span className={`text-lg font-bold ${delivery.status === "ready" ? "text-green-600" : "text-blue-600"}`}>
                             R$ {((delivery.total_milli || 0) * 0.1 / 1000).toFixed(2)}
                           </span>
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          Total do Pedido: R$ {((delivery.total_milli || 0) / 1000).toFixed(2)}
                         </div>
                         <div className="mt-3 space-y-2">
                           {delivery.status === "ready" && !delivery.rider_status && (
@@ -1137,7 +1176,7 @@ const RiderDashboard = () => {
               <div className="flex items-center justify-between">
                 <CardTitle className="text-xl font-bold text-gray-900">Histórico de Entregas</CardTitle>
                 {deliveryHistory.length > 0 && (
-                  <Badge variant="secondary">{deliveryHistory.length}</Badge>
+                  <Badge className="bg-orange-500 text-white">{deliveryHistory.length}</Badge>
                 )}
               </div>
             </CardHeader>
@@ -1149,52 +1188,51 @@ const RiderDashboard = () => {
                   <p className="text-sm text-gray-400">Seu histórico aparecerá aqui</p>
                 </div>
               ) : (
-                <div className="space-y-3 max-h-96 overflow-y-auto">
-                  {deliveryHistory.map(delivery => {
-                    const statusColors: Record<string, string> = {
-                      delivered: "bg-green-100 text-green-800",
-                      on_way: "bg-blue-100 text-blue-800",
-                    };
-                    const statusLabels: Record<string, string> = {
-                      delivered: "Entregue",
-                      on_way: "Em Rota",
-                    };
-                    const isOnWay = delivery.status === "on_way";
-                    return (
-                      <div key={delivery.id} className={`p-4 bg-gray-50 rounded-lg border border-gray-200 ${isOnWay ? 'hover:shadow-md transition-all cursor-pointer' : ''}`}>
-                        <div className="flex items-start justify-between mb-2">
+                <div className="space-y-3">
+                  {deliveryHistory.map(delivery => (
+                    <Card key={delivery.id} className="border hover:shadow-md transition-all border-green-200 bg-green-50">
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between mb-3">
                           <div>
-                            <h4 className="font-semibold text-gray-900">Pedido #{delivery.id.slice(0, 8).toUpperCase()}</h4>
-                            <p className="text-xs text-gray-500 mt-1">
-                              {new Date(delivery.created_at).toLocaleDateString('pt-BR')}
+                            <h4 className="font-bold text-gray-900 mb-1">Pedido #{delivery.id.slice(0, 8).toUpperCase()}</h4>
+                            <p className="text-sm text-gray-600">
+                              <Clock className="h-3 w-3 inline mr-1" />
+                              {new Date(delivery.created_at).toLocaleString('pt-BR')}
                             </p>
+                            {delivery.payment_method && (
+                              <p className="text-xs text-gray-500 mt-1">
+                                💳 {delivery.payment_method === 'credit_card' ? 'Cartão de Crédito' : 
+                                     delivery.payment_method === 'debit_card' ? 'Cartão de Débito' :
+                                     delivery.payment_method === 'pix' ? 'PIX' :
+                                     delivery.payment_method === 'cash' ? 'Dinheiro' : delivery.payment_method}
+                              </p>
+                            )}
+                            {(delivery.delivery_street || delivery.delivery_city) && (
+                              <p className="text-xs text-gray-600 mt-2 flex items-center gap-1">
+                                <MapPin className="h-3 w-3 text-purple-600" />
+                                {delivery.delivery_street && <span>{delivery.delivery_street}</span>}
+                                {delivery.delivery_city && delivery.delivery_state && (
+                                  <span>{delivery.delivery_city}, {delivery.delivery_state}</span>
+                                )}
+                              </p>
+                            )}
                           </div>
-                          <Badge className={`${statusColors[delivery.status] || statusColors.delivered} text-xs`}>
-                            {statusLabels[delivery.status] || delivery.status}
+                          <Badge className="bg-green-500 text-white">
+                            Entregue
                           </Badge>
                         </div>
-                        <div className="flex items-center justify-between pt-2 border-t border-gray-200 mt-2">
-                          <span className="text-sm text-gray-600">Ganho</span>
-                          <span className="font-bold text-purple-600">R$ {((delivery.total_milli || 0) * 0.1 / 1000).toFixed(2)}</span>
+                        <div className="flex items-center justify-between pt-3 border-t border-gray-200">
+                          <span className="text-sm text-gray-700">Ganho (10%)</span>
+                          <span className="text-lg font-bold text-green-600">
+                            R$ {((delivery.total_milli || 0) * 0.1 / 1000).toFixed(2)}
+                          </span>
                         </div>
-                        {isOnWay && (
-                          <div className="mt-3 pt-3 border-t border-gray-200">
-                            <Button
-                              className="w-full rounded-full bg-blue-500 hover:bg-blue-600"
-                              onClick={async () => {
-                                setSelectedDelivery(delivery);
-                                await loadDeliveryDetails(delivery);
-                                setIsMapModalOpen(true);
-                              }}
-                            >
-                              <Navigation className="h-4 w-4 mr-2" />
-                              Ver Rota no Mapa
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                        <div className="text-xs text-gray-500 mt-1">
+                          Total do Pedido: R$ {((delivery.total_milli || 0) / 1000).toFixed(2)}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
               )}
             </CardContent>
@@ -1289,6 +1327,20 @@ const RiderDashboard = () => {
                     >
                       <Bike className="h-4 w-4 mr-2" />
                       🏠 Ir para Casa do Cliente
+                    </Button>
+                  )}
+                  
+                  {selectedDelivery.rider_status === "going_to_customer" && (
+                    <Button
+                      className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                      onClick={() => {
+                        if (selectedDelivery?.id) {
+                          handleCompleteDelivery(selectedDelivery.id);
+                        }
+                      }}
+                    >
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      ✅ Finalizar Entrega
                     </Button>
                   )}
                 </div>
