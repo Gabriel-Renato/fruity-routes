@@ -1,4 +1,3 @@
--- Tabela de produtos
 CREATE TABLE IF NOT EXISTS public.products (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   store_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -9,13 +8,11 @@ CREATE TABLE IF NOT EXISTS public.products (
 
 ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
 
--- Políticas: qualquer usuário pode ver produtos (catálogo público)
 CREATE POLICY "Public can view products"
   ON public.products
   FOR SELECT
   USING (true);
 
--- Dono (loja) pode inserir/atualizar/deletar seus produtos
 CREATE POLICY "Store can insert own products"
   ON public.products
   FOR INSERT

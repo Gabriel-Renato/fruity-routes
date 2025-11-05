@@ -38,7 +38,6 @@ const RiderDashboard = () => {
         navigate("/auth");
       } else {
         setUser(user);
-        // Carregar perfil com informações de CNH e disponibilidade
         const { data: profileData, error: profileError } = await supabase
           .from("profiles")
           .select("full_name, phone, cnh_number, cnh_category, cnh_expiry, vehicle_type, vehicle_plate")
@@ -50,7 +49,6 @@ const RiderDashboard = () => {
         }
         if (profileData) {
           setProfile(profileData);
-          // is_available será false por padrão até migration ser aplicada
           setIsAvailable(false);
         }
       }
@@ -59,12 +57,10 @@ const RiderDashboard = () => {
     checkUser();
   }, [navigate]);
 
-  // Carregar entregas disponíveis (pedidos atribuídos a este motorista)
   useEffect(() => {
     const loadAvailableDeliveries = async () => {
       if (!user) return;
       
-      // Buscar sem campos novos primeiro (até migration ser aplicada)
       try {
         const { data, error } = await supabase
           .from("orders")
@@ -78,7 +74,6 @@ const RiderDashboard = () => {
           console.error('Erro ao carregar entregas:', error);
           setAvailableDeliveries([]);
         } else {
-          // Adicionar campos opcionais como null se não existirem
           setAvailableDeliveries((data || []).map((d: any) => ({
             ...d,
             rider_status: d.rider_status || null,
@@ -95,18 +90,15 @@ const RiderDashboard = () => {
     };
     loadAvailableDeliveries();
     
-    // Recarregar a cada 10 segundos
     const interval = setInterval(loadAvailableDeliveries, 10000);
     return () => clearInterval(interval);
   }, [user]);
 
-  // Carregar histórico de entregas
   useEffect(() => {
     const loadDeliveryHistory = async () => {
       if (!user) return;
       
       try {
-        // Buscar com campos de endereço
         const { data, error } = await supabase
           .from("orders")
           .select("id, customer_id, store_id, total_milli, created_at, status, payment_method, delivery_street, delivery_city, delivery_state, delivery_zip, delivery_complement")
@@ -121,7 +113,6 @@ const RiderDashboard = () => {
           return;
         }
         
-        // Adicionar campos opcionais como null se não existirem
         const deliveriesWithDefaults = (data || []).map((d: any) => ({
           ...d,
           delivery_street: d.delivery_street || null,
@@ -132,15 +123,14 @@ const RiderDashboard = () => {
         
         setDeliveryHistory(deliveriesWithDefaults);
         
-        // Calcular estatísticas
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const todayDeliveries = deliveriesWithDefaults.filter((d: any) => new Date(d.created_at) >= today);
         setStats({
           deliveriesToday: todayDeliveries.length,
           onRoute: deliveriesWithDefaults.filter((d: any) => d.status === "on_way").length,
-          avgTime: 25, // minutos (mockado)
-          earningsToday: todayDeliveries.reduce((sum: number, d: any) => sum + (d.total_milli || 0) * 0.1, 0) / 1000, // 10% do pedido
+          avgTime: 25,
+          earningsToday: todayDeliveries.reduce((sum: number, d: any) => sum + (d.total_milli || 0) * 0.1, 0) / 1000,
           totalEarnings: deliveriesWithDefaults.reduce((sum: number, d: any) => sum + (d.total_milli || 0) * 0.1, 0) / 1000,
           rating: 4.9
         });
@@ -171,7 +161,6 @@ const RiderDashboard = () => {
       .eq("id", user.id);
     
     if (error) {
-      // Se o erro for porque o campo não existe, apenas atualizar estado local
       if (error.message?.includes("column") && error.message?.includes("does not exist")) {
         console.log('Campo is_available ainda não existe no banco. Usando apenas estado local.');
         setIsAvailable(newAvailability);
@@ -183,14 +172,12 @@ const RiderDashboard = () => {
           description: "Campo de disponibilidade ainda não disponível. A funcionalidade estará completa após aplicar as migrations.",
           variant: "default",
         });
-        // Mesmo assim atualizar localmente para não bloquear o usuário
         setIsAvailable(newAvailability);
       }
     } else {
       setIsAvailable(newAvailability);
       setProfile({ ...profile, is_available: newAvailability });
       
-      // Recarregar entregas disponíveis quando ficar disponível
       if (newAvailability && user) {
         try {
           const { data } = await supabase
@@ -215,7 +202,6 @@ const RiderDashboard = () => {
     }
   };
 
-  // Coordenadas conhecidas das principais cidades brasileiras
   const cityCoordinates: Record<string, { lat: number; lng: number }> = {
     'brasília': { lat: -15.7942, lng: -47.8822 },
     'brasilia': { lat: -15.7942, lng: -47.8822 },
@@ -234,13 +220,11 @@ const RiderDashboard = () => {
     'belem': { lat: -1.4558, lng: -48.5044 },
   };
 
-  // Função auxiliar para obter coordenadas de um endereço
   const geocodeAddress = async (address: string): Promise<{ lat: number; lng: number } | null> => {
     if (!address || address.trim() === '' || address.trim() === 'Brasil') {
       return null;
     }
     
-    // Primeiro, tentar buscar nas coordenadas conhecidas
     const addressLower = address.toLowerCase();
     for (const [city, coords] of Object.entries(cityCoordinates)) {
       if (addressLower.includes(city)) {
@@ -249,18 +233,16 @@ const RiderDashboard = () => {
       }
     }
     
-    // Tentar usar Nominatim (OpenStreetMap) - GRATUITO e não precisa de API key
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 segundos
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
       
-      // Nominatim API - Gratuita
       const response = await fetch(
         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address + ', Brasil')}&limit=1&addressdetails=1`,
         {
           signal: controller.signal,
           headers: {
-            'User-Agent': 'StarFruit Delivery App' // Requerido pela Nominatim
+            'User-Agent': 'StarFruit Delivery App'
           }
         }
       );
@@ -286,7 +268,6 @@ const RiderDashboard = () => {
       }
     }
     
-    // Se Nominatim falhar, tentar Google Maps (se tiver API key)
     try {
       const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
       
@@ -317,7 +298,6 @@ const RiderDashboard = () => {
       console.error('Erro ao geocodificar via Google Maps:', error);
     }
     
-    // Se tudo falhar, tentar extrair cidade e usar coordenadas conhecidas
     const cityMatch = address.match(/\b([A-Za-zÀ-ÿ\s]+)\s*,\s*(?:DF|SP|RJ|MG|PR|RS|BA|PE|CE|GO|AM|PA)\b/i);
     if (cityMatch) {
       const city = cityMatch[1].toLowerCase().trim();
@@ -330,14 +310,11 @@ const RiderDashboard = () => {
     return null;
   };
 
-  // Carregar informações completas do pedido para o mapa
   const loadDeliveryDetails = async (delivery: any) => {
-    // Limpar informações anteriores
     setStoreInfo(null);
     setCustomerInfo(null);
     setIsLoadingCoordinates(true);
     
-    // Debug: verificar se os dados de endereço estão disponíveis
     console.log('Carregando detalhes da entrega:', {
       id: delivery.id,
       delivery_street: delivery.delivery_street,
@@ -348,18 +325,14 @@ const RiderDashboard = () => {
     });
     
     const riderStatus = delivery.rider_status || null;
-    // Se não tem rider_status mas status é "on_way", significa que está indo para a loja primeiro
     const isGoingToStore = riderStatus === "going_to_store" || riderStatus === "at_store" || (!riderStatus && delivery.status === "on_way");
     const isGoingToCustomer = riderStatus === "going_to_customer";
     
     console.log('Status da entrega:', { riderStatus, status: delivery.status, isGoingToStore, isGoingToCustomer });
     
-    // Função auxiliar para obter coordenadas com fallback - SEMPRE retorna coordenadas
-    const getCoordinatesWithFallback = async (address: string, city?: string, state?: string): Promise<{ lat: number; lng: number }> => {
-      // PRIORIDADE 1: Verificar se a cidade está nas coordenadas conhecidas (mais rápido e confiável)
+      const getCoordinatesWithFallback = async (address: string, city?: string, state?: string): Promise<{ lat: number; lng: number }> => {
       if (city) {
         const cityLower = city.toLowerCase().trim();
-        // Verificar variações comuns
         const cityVariations = [
           cityLower,
           cityLower.replace('ã', 'a').replace('á', 'a').replace('â', 'a'),
@@ -377,7 +350,6 @@ const RiderDashboard = () => {
         }
       }
       
-      // PRIORIDADE 2: Tentar geocodificação apenas se não tiver coordenadas conhecidas
       if (address && address !== 'Brasil' && !address.includes('Brasília, DF, Brasil')) {
         try {
           const coords = await geocodeAddress(address);
@@ -390,7 +362,6 @@ const RiderDashboard = () => {
         }
       }
       
-      // PRIORIDADE 3: Tentar extrair cidade do endereço e usar coordenadas conhecidas
       if (address) {
         const cityMatch = address.match(/\b([A-Za-zÀ-ÿ\s]+)\s*,\s*(?:DF|SP|RJ|MG|PR|RS|BA|PE|CE|GO|AM|PA)\b/i);
         if (cityMatch) {

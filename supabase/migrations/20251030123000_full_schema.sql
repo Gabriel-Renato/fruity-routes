@@ -1,14 +1,11 @@
--- Extensões necessárias
 create extension if not exists pgcrypto;
 
--- ENUM user_type (se não existir)
 do $$ begin
   if not exists (select 1 from pg_type where typname = 'user_type') then
     create type user_type as enum ('customer', 'store', 'rider');
   end if;
 end $$;
 
--- profiles (já existe em migração anterior, deixar idempotente)
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   user_type user_type not null default 'customer',
@@ -60,7 +57,6 @@ do $$ begin
   end if;
 end $$;
 
--- stores (lojas mantêm metadados opcionais)
 create table if not exists public.stores (
   id uuid primary key default gen_random_uuid(),
   owner_id uuid not null references auth.users(id) on delete cascade,
@@ -79,7 +75,6 @@ do $$ begin
   end if;
 end $$;
 
--- products (já criado em migração anterior; manter idempotente)
 create table if not exists public.products (
   id uuid primary key default gen_random_uuid(),
   store_id uuid not null references auth.users(id) on delete cascade,
@@ -103,7 +98,6 @@ do $$ begin
   end if;
 end $$;
 
--- categories e product_categories
 create table if not exists public.categories (
   id uuid primary key default gen_random_uuid(),
   name text not null unique
@@ -132,7 +126,6 @@ do $$ begin
   end if;
 end $$;
 
--- addresses (endereços do usuário)
 create table if not exists public.addresses (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -152,11 +145,10 @@ do $$ begin
   end if;
 end $$;
 
--- carts e cart_items (opcional, mas com RLS por usuário)
 create table if not exists public.carts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  store_id uuid references auth.users(id) on delete set null, -- carrinho por loja (simplificado)
+  store_id uuid references auth.users(id) on delete set null,
   created_at timestamptz default now()
 );
 alter table public.carts enable row level security;
@@ -183,7 +175,6 @@ do $$ begin
   end if;
 end $$;
 
--- orders e order_items
 create table if not exists public.orders (
   id uuid primary key default gen_random_uuid(),
   customer_id uuid not null references auth.users(id) on delete cascade,

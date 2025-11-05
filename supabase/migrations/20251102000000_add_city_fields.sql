@@ -1,7 +1,3 @@
--- Migration: Adicionar campos de cidade para profiles e stores
--- Data: 2025-11-02
-
--- Adicionar cidade e estado na tabela profiles
 do $$ begin
   if not exists (select 1 from information_schema.columns where table_schema='public' and table_name='profiles' and column_name='city') then
     alter table public.profiles add column city text;
@@ -11,7 +7,6 @@ do $$ begin
   end if;
 end $$;
 
--- Adicionar cidade e estado na tabela stores
 do $$ begin
   if not exists (select 1 from information_schema.columns where table_schema='public' and table_name='stores' and column_name='city') then
     alter table public.stores add column city text;
@@ -21,7 +16,6 @@ do $$ begin
   end if;
 end $$;
 
--- Atualizar função handle_new_user para incluir cidade e estado do metadata
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
